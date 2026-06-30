@@ -1,0 +1,198 @@
+/* ===== WASTED CITY — GTA 2 style tower defense ===== */
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+:root {
+  --asphalt: #1b1d22;
+  --neon-pink: #ff2e88;
+  --neon-cyan: #19e6ff;
+  --neon-yellow: #ffd23f;
+  --neon-green: #51ff5b;
+  --grime: #0c0d10;
+  --panel: #15171d;
+  --line: #2c2f38;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #050507;
+  color: #cfd3da;
+  font-family: 'VT323', 'Courier New', monospace;
+  font-size: 20px;
+  overflow: hidden;
+  -webkit-font-smoothing: none;
+  image-rendering: pixelated;
+}
+
+/* CRT / scanline vibe of the era */
+#crt {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(ellipse at center, #15151c 0%, #050507 80%);
+}
+#crt::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.18) 3px,
+    rgba(0, 0, 0, 0.18) 4px
+  );
+  mix-blend-mode: multiply;
+  z-index: 50;
+}
+
+#game-wrap {
+  width: 980px;
+  max-width: 98vw;
+}
+
+/* ===== HUD ===== */
+#hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border: 2px solid var(--line);
+  border-bottom: none;
+  background: linear-gradient(#1c1f27, #111319);
+}
+.logo {
+  margin: 0;
+  font-size: 38px;
+  letter-spacing: 2px;
+  color: var(--neon-yellow);
+  text-shadow: 2px 2px 0 #000, 0 0 12px rgba(255, 210, 63, .4);
+}
+.logo span { color: var(--neon-pink); text-shadow: 2px 2px 0 #000, 0 0 12px rgba(255, 46, 136, .5); }
+
+.stats { display: flex; gap: 14px; }
+.stat {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 4px 12px;
+  border: 2px solid var(--line);
+  background: #0d0f14;
+  min-width: 92px;
+  justify-content: center;
+}
+.stat .label { font-size: 16px; color: #7c8290; }
+.stat span:last-child { font-size: 30px; line-height: 1; }
+.cash span:last-child { color: var(--neon-green); }
+.lives span:last-child { color: var(--neon-pink); }
+.wave span:last-child { color: var(--neon-cyan); }
+
+/* ===== Stage ===== */
+#stage {
+  position: relative;
+  display: flex;
+  border: 2px solid var(--line);
+  background: var(--grime);
+}
+#canvas {
+  display: block;
+  width: 640px;
+  height: 640px;
+  background: var(--asphalt);
+  cursor: crosshair;
+  flex: 0 0 auto;
+}
+
+/* ===== Shop ===== */
+#shop {
+  flex: 1;
+  padding: 10px 12px;
+  background: var(--panel);
+  border-left: 2px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+#shop h2 {
+  margin: 0;
+  font-size: 22px;
+  color: var(--neon-cyan);
+  letter-spacing: 1px;
+  border-bottom: 2px dashed var(--line);
+  padding-bottom: 6px;
+}
+#tower-list { display: flex; flex-direction: column; gap: 8px; }
+
+.tower-card {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 2px solid var(--line);
+  background: #0e1016;
+  cursor: pointer;
+  transition: transform .05s, border-color .1s;
+}
+.tower-card:hover { border-color: #475067; transform: translateX(2px); }
+.tower-card.selected { border-color: var(--neon-yellow); box-shadow: 0 0 0 2px rgba(255,210,63,.25) inset; }
+.tower-card.cant { opacity: .45; cursor: not-allowed; }
+.tower-icon { width: 30px; height: 30px; border-radius: 4px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.5); }
+.tower-name { font-size: 19px; line-height: 1; }
+.tower-desc { font-size: 14px; color: #888f9c; }
+.tower-cost { font-size: 20px; color: var(--neon-green); white-space: nowrap; }
+
+.btn {
+  font-family: inherit;
+  font-size: 22px;
+  letter-spacing: 1px;
+  padding: 8px 10px;
+  color: #07120a;
+  background: var(--neon-green);
+  border: none;
+  border-bottom: 4px solid #2a8a31;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+.btn:hover { filter: brightness(1.1); }
+.btn:active { transform: translateY(2px); border-bottom-width: 2px; }
+.btn:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.7); }
+.btn.big { font-size: 30px; padding: 12px 28px; }
+
+#start-wave { margin-top: auto; }
+.hint { font-size: 16px; color: #6f7682; margin: 0; line-height: 1.1; }
+
+/* ===== Overlay ===== */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 5, 8, .82);
+  z-index: 20;
+}
+.overlay.hidden { display: none; }
+.panel {
+  text-align: center;
+  padding: 30px 40px;
+  border: 2px solid var(--neon-pink);
+  background: #0c0e13;
+  box-shadow: 0 0 30px rgba(255, 46, 136, .25);
+  max-width: 460px;
+}
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 52px;
+  color: var(--neon-pink);
+  text-shadow: 3px 3px 0 #000;
+  letter-spacing: 2px;
+}
+.panel p { font-size: 21px; line-height: 1.2; color: #b9bfca; margin: 0 0 22px; }
+
+.flash { animation: flash .25s ease; }
+@keyframes flash { from { background: #fff; } to { background: var(--asphalt); } }

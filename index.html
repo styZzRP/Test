@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>WASTED CITY — Tower Defense</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="crt">
+    <div id="game-wrap">
+      <header id="hud">
+        <h1 class="logo">WASTED<span>CITY</span></h1>
+        <div class="stats">
+          <div class="stat cash"><span class="label">$</span><span id="cash">0</span></div>
+          <div class="stat lives"><span class="label">LIVES</span><span id="lives">0</span></div>
+          <div class="stat wave"><span class="label">WAVE</span><span id="wave">0</span></div>
+        </div>
+      </header>
+
+      <div id="stage">
+        <canvas id="canvas" width="640" height="640"></canvas>
+
+        <!-- Tower shop -->
+        <aside id="shop">
+          <h2>GANGS FOR HIRE</h2>
+          <div id="tower-list"></div>
+          <button id="start-wave" class="btn">SEND NEXT WAVE</button>
+          <p id="hint" class="hint">Pick a gang, then click an empty lot to deploy.</p>
+        </aside>
+
+        <!-- Overlays -->
+        <div id="overlay" class="overlay hidden">
+          <div class="panel">
+            <h2 id="overlay-title">WASTED CITY</h2>
+            <p id="overlay-text"></p>
+            <button id="overlay-btn" class="btn big">START</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>
