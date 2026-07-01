@@ -90,6 +90,19 @@ html, body {
 .cash span:last-child { color: var(--neon-green); }
 .lives span:last-child { color: var(--neon-pink); }
 .wave span:last-child { color: var(--neon-cyan); }
+.score span:last-child { color: var(--neon-yellow); }
+
+.mute {
+  font-size: 22px;
+  line-height: 1;
+  padding: 4px 10px;
+  background: #0d0f14;
+  border: 2px solid var(--line);
+  color: #cfd3da;
+  cursor: pointer;
+}
+.mute:hover { border-color: #475067; }
+.mute.off { opacity: .5; }
 
 /* ===== Stage ===== */
 #stage {
@@ -232,8 +245,10 @@ html, body {
 
   #hud { flex-direction: column; gap: 6px; padding: 8px; }
   .logo { font-size: 30px; }
-  .stats { width: 100%; justify-content: space-between; gap: 8px; }
-  .stat { flex: 1; min-width: 0; }
+  .stats { width: 100%; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 62px; padding: 4px 6px; }
+  .stat span:last-child { font-size: 24px; }
+  .mute { font-size: 20px; padding: 4px 8px; }
 
   #stage { flex-direction: column; }
 

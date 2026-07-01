@@ -74,6 +74,18 @@
       name: 'Rednecks', desc: 'Long range sniper.',
       cost: 170, range: 200, dmg: 26, rate: 0.85, bullet: 5,
       color: '#51ff5b', muzzle: '#d4ffd6'
+    },
+    krishnas: {
+      name: 'Krishnas', desc: 'Slows cars in range.',
+      cost: 120, range: 115, dmg: 3, rate: 0.5, bullet: 4,
+      color: '#ff8a1e', muzzle: '#ffd9a8',
+      effect: { type: 'slow', factor: 0.45, dur: 1.3 }
+    },
+    scientists: {
+      name: 'Scientists', desc: 'Rockets — splash damage.',
+      cost: 210, range: 150, dmg: 20, rate: 1.35, bullet: 6,
+      color: '#7a5cff', muzzle: '#d7ccff',
+      effect: { type: 'splash', radius: 52 }
     }
   };
 
@@ -83,6 +95,10 @@
   function towerStats(tw) {
     const b = TOWERS[tw.type];
     const m = tw.level - 1;
+    let effect = b.effect;
+    if (effect && effect.type === 'splash') {
+      effect = { type: 'splash', radius: effect.radius * (1 + 0.12 * m) };
+    }
     return {
       name: b.name,
       range: b.range * (1 + 0.12 * m),
@@ -90,6 +106,7 @@
       rate: b.rate * Math.pow(0.85, m),
       bullet: b.bullet + m * 0.6,
       color: b.color, muzzle: b.muzzle,
+      effect,
     };
   }
 
@@ -103,6 +120,8 @@
     cash: 220,
     lives: 20,
     wave: 0,
+    score: 0,
+    hiscore: Number(localStorage.getItem('wastedcity.hi') || 0),
     towers: [],
     enemies: [],
     bullets: [],
@@ -110,12 +129,56 @@
     selectedType: null,
     selectedTower: null,
     hoverTile: null,
-    spawnQueue: [],
-    spawnTimer: 0,
+    spawners: [],          // each running wave gets its own concurrent spawner
     waveActive: false,
     running: false,
     over: false,
   };
+
+  /* ---------------------------------------------------------------------
+     SOUND — tiny Web Audio blips, era-appropriate
+  --------------------------------------------------------------------- */
+  const Sound = (() => {
+    let ctx = null, master = null, enabled = true, lastShoot = 0;
+    function init() {
+      if (ctx) return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      ctx = new AC();
+      master = ctx.createGain();
+      master.gain.value = 0.22;
+      master.connect(ctx.destination);
+    }
+    function blip(freq, dur, type = 'square', vol = 1, slideTo = null) {
+      if (!enabled || !ctx) return;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, ctx.currentTime);
+      if (slideTo) o.frequency.linearRampToValueAtTime(slideTo, ctx.currentTime + dur);
+      g.gain.setValueAtTime(vol, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+      o.connect(g); g.connect(master);
+      o.start(); o.stop(ctx.currentTime + dur);
+    }
+    return {
+      init,
+      isOn: () => enabled,
+      toggle() { enabled = !enabled; return enabled; },
+      shoot() {
+        const now = performance.now();
+        if (now - lastShoot < 55) return;   // throttle so mass fire isn't noise
+        lastShoot = now;
+        blip(200 + Math.random() * 60, 0.05, 'square', 0.25);
+      },
+      explosion() { blip(120, 0.28, 'sawtooth', 0.7, 40); },
+      place() { blip(300, 0.08, 'square', 0.5); blip(450, 0.08, 'square', 0.35); },
+      upgrade() { blip(440, 0.09, 'square', 0.5); setTimeout(() => blip(660, 0.11, 'square', 0.45), 70); },
+      sell() { blip(400, 0.1, 'square', 0.4, 200); },
+      waveClear() { blip(523, 0.12, 'square', 0.5); setTimeout(() => blip(784, 0.15, 'square', 0.5), 110); },
+      life() { blip(170, 0.22, 'sawtooth', 0.6, 60); },
+      over() { blip(220, 0.6, 'sawtooth', 0.7, 45); },
+    };
+  })();
 
   /* ---------------------------------------------------------------------
      DOM REFS + SHOP
@@ -124,6 +187,8 @@
     cash: document.getElementById('cash'),
     lives: document.getElementById('lives'),
     wave: document.getElementById('wave'),
+    score: document.getElementById('score'),
+    mute: document.getElementById('mute'),
     towerList: document.getElementById('tower-list'),
     startBtn: document.getElementById('start-wave'),
     hint: document.getElementById('hint'),
@@ -184,10 +249,13 @@
 
     const s = towerStats(tw);
     el.tpTitle.textContent = `${s.name}  ·  LVL ${tw.level}/${MAX_LEVEL}`;
-    el.tpStats.innerHTML =
+    let stats =
       `<span>DMG ${Math.round(s.dmg)}</span>` +
       `<span>RNG ${Math.round(s.range)}</span>` +
       `<span>RATE ${(1 / s.rate).toFixed(1)}/s</span>`;
+    if (s.effect && s.effect.type === 'slow') stats += `<span>SLOW</span>`;
+    if (s.effect && s.effect.type === 'splash') stats += `<span>SPLASH ${Math.round(s.effect.radius)}</span>`;
+    el.tpStats.innerHTML = stats;
 
     if (tw.level >= MAX_LEVEL) {
       el.tpUpgrade.textContent = 'MAXED';
@@ -210,6 +278,7 @@
     state.cash -= cost;
     tw.invested += cost;
     tw.level++;
+    Sound.upgrade();
     updateHUD();
     refreshTowerPanel();
   }
@@ -220,6 +289,7 @@
     state.cash += sellValue(tw);
     state.towers = state.towers.filter(t => t !== tw);
     state.selectedTower = null;
+    Sound.sell();
     updateHUD();
     refreshTowerPanel();
   }
@@ -228,6 +298,7 @@
     el.cash.textContent = state.cash;
     el.lives.textContent = state.lives;
     el.wave.textContent = state.wave;
+    el.score.textContent = state.score;
     // The wave button always works (except on game over) so you can call the
     // next wave in early; its label reflects the early-call bonus.
     el.startBtn.disabled = state.over;
@@ -310,6 +381,7 @@
       cool: 0, angle: -Math.PI / 2
     });
     if (state.cash < type.cost) state.selectedType = null;
+    Sound.place();
     updateHUD();
   }
 
@@ -334,8 +406,9 @@
   function startWave() {
     if (state.over) return;
 
-    // Calling a wave in while the previous one is still running pays a bonus
-    // and stacks the new cars onto whatever is still on the road.
+    // Calling a wave in while the previous one is still running pays a bonus.
+    // Each wave gets its OWN spawner, so stacked waves pour cars onto the road
+    // at the same time instead of politely queuing single file.
     const early = state.waveActive;
     if (early) { state.cash += earlyBonus(); flashHint(`Wave called in early! +$${earlyBonus()}`); }
 
@@ -345,10 +418,11 @@
     const n = 6 + state.wave * 2;
     const baseHp = 24 + state.wave * 14;
     const speed = 42 + state.wave * 2.2;
+    const queue = [];
     for (let i = 0; i < n; i++) {
       // Every 5th wave rolls in a fat "boss" limo.
       const boss = state.wave % 5 === 0 && i === n - 1;
-      state.spawnQueue.push({
+      queue.push({
         hp: boss ? baseHp * 9 : baseHp * (0.85 + Math.random() * 0.4),
         speed: boss ? speed * 0.6 : speed * (0.9 + Math.random() * 0.3),
         bounty: boss ? 120 : 7 + state.wave,
@@ -356,7 +430,7 @@
         color: boss ? '#b026ff' : pick(['#c23b22', '#2e7dd1', '#d8d8d8', '#3a3f47', '#caa53d'])
       });
     }
-    if (!early) state.spawnTimer = 0;
+    state.spawners.push({ queue, timer: 0, interval: 0.7 });
     updateHUD();
   }
 
@@ -372,7 +446,8 @@
       hp: def.hp, maxHp: def.hp,
       speed: def.speed, bounty: def.bounty,
       boss: def.boss, color: def.color,
-      angle: 0, wob: Math.random() * 6.28
+      angle: 0, wob: Math.random() * 6.28,
+      slowTimer: 0, slowFactor: 1
     });
   }
 
@@ -380,21 +455,26 @@
      UPDATE
   --------------------------------------------------------------------- */
   function update(dt) {
-    // spawn from queue
-    if (state.waveActive && state.spawnQueue.length) {
-      state.spawnTimer -= dt;
-      if (state.spawnTimer <= 0) {
-        spawnEnemy(state.spawnQueue.shift());
-        state.spawnTimer = 0.7;
+    // Every active wave spawns concurrently — stacked waves = denser traffic.
+    for (const sp of state.spawners) {
+      sp.timer -= dt;
+      if (sp.timer <= 0 && sp.queue.length) {
+        spawnEnemy(sp.queue.shift());
+        sp.timer = sp.interval;
       }
     }
+    state.spawners = state.spawners.filter(sp => sp.queue.length);
 
     // enemies follow the road
     for (const e of state.enemies) {
+      // slow field: cars in a Krishna's range crawl for a moment
+      if (e.slowTimer > 0) { e.slowTimer -= dt; } else { e.slowFactor = 1; }
+      const spd = e.speed * (e.slowTimer > 0 ? e.slowFactor : 1);
+
       const a = path[e.seg], b = path[e.seg + 1];
       const dx = b.x - a.x, dy = b.y - a.y;
       const len = Math.hypot(dx, dy);
-      e.t += (e.speed * dt) / len;
+      e.t += (spd * dt) / len;
       e.angle = Math.atan2(dy, dx);
       if (e.t >= 1) {
         e.t -= 1; e.seg++;
@@ -413,6 +493,7 @@
       if (e.reached) {
         state.lives -= e.boss ? 5 : 1;
         screenFlash();
+        Sound.life();
         if (state.lives <= 0) { state.lives = 0; gameOver(); }
       }
     }
@@ -436,9 +517,11 @@
         if (tw.cool <= 0) {
           tw.cool = cfg.rate;
           tw.flash = 0.06;
+          Sound.shoot();
           state.bullets.push({
             x: tw.x, y: tw.y, target,
-            dmg: cfg.dmg, speed: 420, r: cfg.bullet, color: cfg.color
+            dmg: cfg.dmg, speed: cfg.effect && cfg.effect.type === 'splash' ? 260 : 420,
+            r: cfg.bullet, color: cfg.color, effect: cfg.effect || null
           });
         }
       }
@@ -452,9 +535,7 @@
       const d = Math.hypot(dx, dy);
       const step = b.speed * dt;
       if (d <= step) {
-        b.target.hp -= b.dmg;
-        spawnHit(b.target.x, b.target.y, b.color);
-        if (b.target.hp <= 0) killEnemy(b.target);
+        impact(b);
         b.dead = true;
       } else {
         b.x += (dx / d) * step;
@@ -471,11 +552,13 @@
     }
     state.particles = state.particles.filter(p => p.life > 0);
 
-    // wave finished?
-    if (state.waveActive && !state.spawnQueue.length && !state.enemies.length) {
+    // wave finished? (all spawners drained and the road is clear)
+    if (state.waveActive && !state.spawners.length && !state.enemies.length) {
       state.waveActive = false;
-      state.cash += 40 + state.wave * 8; // end-of-wave payout
-      flashHint(`Wave ${state.wave} cleared! +$${40 + state.wave * 8}`);
+      const payout = 40 + state.wave * 8; // end-of-wave payout
+      state.cash += payout;
+      Sound.waveClear();
+      flashHint(`Wave ${state.wave} cleared! +$${payout}`);
     }
 
     if (hintTimer > 0) {
@@ -485,9 +568,45 @@
     updateHUD();
   }
 
+  // Resolve a bullet arriving at its target: direct damage plus any effect.
+  function impact(b) {
+    const t = b.target;
+    t.hp -= b.dmg;
+    spawnHit(t.x, t.y, b.color);
+
+    if (b.effect && b.effect.type === 'slow') {
+      applySlow(t, b.effect);
+    }
+    if (b.effect && b.effect.type === 'splash') {
+      Sound.explosion();
+      for (let i = 0; i < 14; i++) spawnHit(t.x, t.y, '#ff7a18');
+      for (const e of state.enemies) {
+        if (e === t) continue;
+        const d = Math.hypot(e.x - t.x, e.y - t.y);
+        if (d <= b.effect.radius) {
+          e.hp -= b.dmg * 0.6 * (1 - d / b.effect.radius);
+          if (e.hp <= 0) killEnemy(e);
+        }
+      }
+    }
+    if (t.hp <= 0) killEnemy(t);
+  }
+
+  function applySlow(e, eff) {
+    e.slowTimer = Math.max(e.slowTimer, eff.dur);
+    e.slowFactor = Math.min(e.slowFactor, eff.factor);
+  }
+
   function killEnemy(e) {
+    if (e.hp <= 0 && e.dead) return;    // avoid double-counting splash overkill
+    e.dead = true;
     e.hp = 0;
     state.cash += e.bounty;
+    state.score += (e.boss ? 250 : 10) + state.wave;
+    if (state.score > state.hiscore) {
+      state.hiscore = state.score;
+      localStorage.setItem('wastedcity.hi', String(state.hiscore));
+    }
     for (let i = 0; i < (e.boss ? 24 : 10); i++) spawnHit(e.x, e.y, e.boss ? '#b026ff' : '#ff7a18');
   }
 
@@ -710,7 +829,13 @@
   function gameOver() {
     state.over = true;
     state.running = false;
-    showOverlay('WASTED', `You survived ${state.wave} wave${state.wave === 1 ? '' : 's'}. The city ate you alive.`, 'TRY AGAIN', resetGame);
+    Sound.over();
+    const hi = state.score >= state.hiscore;
+    showOverlay(
+      'WASTED',
+      `Score ${state.score}${hi ? ' — NEW HIGH SCORE!' : ` (best ${state.hiscore})`}. ` +
+      `You survived ${state.wave} wave${state.wave === 1 ? '' : 's'}.`,
+      'TRY AGAIN', resetGame);
   }
 
   function showOverlay(title, text, btn, cb) {
@@ -722,9 +847,9 @@
   }
 
   function resetGame() {
-    state.cash = 220; state.lives = 20; state.wave = 0;
+    state.cash = 220; state.lives = 20; state.wave = 0; state.score = 0;
     state.towers = []; state.enemies = []; state.bullets = []; state.particles = [];
-    state.spawnQueue = []; state.selectedType = null; state.selectedTower = null;
+    state.spawners = []; state.selectedType = null; state.selectedTower = null;
     state.waveActive = false; state.over = false; state.running = true;
     updateHUD();
   }
@@ -746,13 +871,21 @@
   /* ---------------------------------------------------------------------
      BOOT
   --------------------------------------------------------------------- */
+  // Mute toggle
+  el.mute.addEventListener('click', () => {
+    Sound.init();
+    const on = Sound.toggle();
+    el.mute.innerHTML = on ? '&#128266;' : '&#128263;';
+    el.mute.classList.toggle('off', !on);
+  });
+
   buildShop();
   updateHUD();
   showOverlay(
     'WASTED CITY',
-    'Top-down gang warfare. Between waves, deploy crews on the empty lots and tap a placed crew to UPGRADE it. Stop the cars before the EXIT. You can also SEND a wave in early for a cash bonus.',
+    'Top-down gang warfare. Between waves, deploy crews on the lots and tap a placed crew to UPGRADE it. Krishnas slow cars, Scientists hit with splash. Stop the traffic before the EXIT — or SEND waves in early for cash, but they arrive all at once.',
     'HIT THE STREETS',
-    () => { state.running = true; }
+    () => { Sound.init(); state.running = true; }   // first gesture unlocks audio
   );
   requestAnimationFrame(loop);
 })();
