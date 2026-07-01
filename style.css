@@ -214,14 +214,20 @@ html, body {
 
   #stage { flex-direction: column; }
 
-  /* Board becomes a square that fills the screen width */
+  /* Board becomes a square, capped so the controls below stay on-screen */
   #canvas {
     width: 100%;
     height: auto;
     aspect-ratio: 1 / 1;
+    max-height: 56vh;
+    margin: 0 auto;
   }
 
   #shop { border-left: none; border-top: 2px solid var(--line); }
+
+  /* Put SEND NEXT WAVE right under the board so it's impossible to miss */
+  #start-wave { order: -1; margin: 0 0 8px; }
+
   #tower-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .tower-desc { display: none; }               /* save room on small screens */
   .tower-card { grid-template-columns: 26px 1fr auto; padding: 8px 6px; }
