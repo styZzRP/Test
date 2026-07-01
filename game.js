@@ -227,6 +227,25 @@
       emitters: { E: { dir: 'right' } },
       sensors: { X: {} },
     },
+
+    /* ---- The Forgetter ---- */
+    {
+      name: 'De Vergeter',
+      hint: 'De plaat is VERANKERD — je kunt zijn gebeurtenis niet wissen, en hij ' +
+            'schakelt de laser in. Maar DE VERGETER eet gebeurtenissen op. Lok hem ' +
+            '(hij kruipt naar jou toe) over de plaat, zodat de laser nooit aanging.',
+      rows: [
+        '###########',
+        '#P.B....F.#',
+        '#~~~~~~~~~#',
+        '#.........#',
+        '#....G....#',
+        '###########',
+      ],
+      plates: { B: { kind: 'latch', anchored: true } },
+      doors: {},
+      lasers: { L: { controllers: [{ plate: 'B' }] } },
+    },
   ];
 
   /* ---------------------------------------------------------------------
@@ -235,7 +254,7 @@
   function parseLevel(def) {
     const H = def.rows.length, W = def.rows[0].length;
     const walls = [];
-    let spawn = null, goal = null;
+    let spawn = null, goal = null, forgetter = null;
     const plateCells = {}, doorCells = {}, laserCells = [];
     const anchorCells = [], seedCells = [], emitterCells = [], sensorCells = [];
 
@@ -251,6 +270,7 @@
         else if (ch === '~') laserCells.push({ x, y });
         else if (ch === '*') emitterCells.push({ x, y });
         else if (ch === 'o') sensorCells.push({ x, y });
+        else if (ch === 'F') forgetter = { x, y };
         else if (ch === '@') anchorCells.push({ x, y });
         else if (ch === '&') seedCells.push({ x, y });
       }
@@ -291,7 +311,7 @@
 
     return {
       name: def.name, hint: def.hint, W, H, walls, spawn, goal, plates, doors, lasers, anchors, seeds,
-      emitters, sensors,
+      emitters, sensors, forgetter,
       echoType: def.echoType || 'normal',   // 'normal' | 'shadow'
       fadeCycles: def.fadeCycles || 0,       // >0 => fragile memories
       allowMove: !!def.allowMove,            // enable "Verschuif" in the timeline menu
@@ -329,7 +349,12 @@
     input: 0,            // current sampled direction
     world: null,         // live world object states
     cycleCount: 0,       // cycles woven so far (for fragile memories)
+    forgotten: new Set(),// events permanently eaten by the Forgetter
+    fpos: null,          // Forgetter position (resets each cycle)
+    ftimer: 0,
   };
+
+  const FORGET_SPEED = 3;   // ticks between the Forgetter's slow steps
 
   /* ---------------------------------------------------------------------
      SIMULATION CORE
@@ -346,8 +371,11 @@
   }
 
   const key = (actorId, plateId) => actorId + '|' + plateId;
+  // An echo's contribution is gone if you erased it or the Forgetter ate it.
+  const isBlocked = (actorId, plateId) =>
+    G.suppressed.has(key(actorId, plateId)) || G.forgotten.has(key(actorId, plateId));
 
-  // Which actors (by id) currently occupy each plate, ignoring suppressed echoes.
+  // Which actors (by id) currently occupy each plate, ignoring blocked echoes.
   function computeOccupancy(positions) {
     const occ = {};
     for (const id in G.level.plates) occ[id] = new Set();
@@ -355,7 +383,7 @@
       for (const id in G.level.plates) {
         const pl = G.level.plates[id];
         if (p.x === pl.x && p.y === pl.y) {
-          if (p.actorId !== 'live' && G.suppressed.has(key(p.actorId, id))) continue;
+          if (p.actorId !== 'live' && isBlocked(p.actorId, id)) continue;
           occ[id].add(p.actorId);
         }
       }
@@ -531,7 +559,8 @@
           const pl = G.level.plates[id];
           const on = (p.x === pl.x && p.y === pl.y);
           const k = p.actorId + id;
-          if (on && !onPlate[k]) {
+          // events the Forgetter ate vanish from the timeline entirely
+          if (on && !onPlate[k] && !G.forgotten.has(key(p.actorId, id))) {
             events.push({
               id: p.actorId + ':' + id + ':' + t,
               actorId: p.actorId, plateId: id, tick: t,
@@ -565,12 +594,16 @@
       G.echoes = [];
       G.suppressed = new Set();
       G.cycleCount = 0;
+      G.forgotten = new Set();   // what the Forgetter ate only clears on full reset
       // a full reset wipes time-anchor memory; erasing (partial) keeps it.
       for (const id in G.level.anchors) G.level.anchors[id].remembered = false;
     }
     G.tick = 0; G.acc = 0;
     G.live = { id: 'live', track: [], spawn: G.level.spawn };
     G.world = freshWorld();
+    // the Forgetter re-walks from its start every cycle
+    if (G.level.forgetter) { G.fpos = { x: G.level.forgetter.x, y: G.level.forgetter.y, px: G.level.forgetter.x, py: G.level.forgetter.y }; G.ftimer = 0; }
+    else G.fpos = null;
     // place all actors at spawn
     positionsInit();
     deriveWorld(G.world, computeOccupancy(currentPositions()), currentPositions());
@@ -602,6 +635,9 @@
       if (!a.remembered && anchorWitnesses(a)) { a.remembered = true; G.breathe = Math.max(G.breathe, 0.6); }
     }
 
+    // The Forgetter creeps toward you; lure it onto a plate to eat its events.
+    if (G.fpos && moveForgetter()) return;   // ate something -> room rewound
+
     G.tick++;
 
     // win: the live player reached the crystal
@@ -609,6 +645,38 @@
     if (lp && lp.x === G.level.goal.x && lp.y === G.level.goal.y) { winLevel(); return; }
 
     if (G.tick >= CYCLE_TICKS) endCycle();
+  }
+
+  // Returns true if it ate an event (which rewinds the cycle).
+  function moveForgetter() {
+    const f = G.fpos, target = posOf('live');
+    f.px = f.x; f.py = f.y;
+    if (++G.ftimer >= FORGET_SPEED) {
+      G.ftimer = 0;
+      const dx = Math.sign(target.x - f.x), dy = Math.sign(target.y - f.y);
+      const free = (x, y) => x >= 0 && y >= 0 && x < G.level.W && y < G.level.H && !G.level.walls[y][x];
+      if (Math.abs(target.x - f.x) >= Math.abs(target.y - f.y)) {
+        if (dx && free(f.x + dx, f.y)) f.x += dx;
+        else if (dy && free(f.x, f.y + dy)) f.y += dy;
+      } else {
+        if (dy && free(f.x, f.y + dy)) f.y += dy;
+        else if (dx && free(f.x + dx, f.y)) f.x += dx;
+      }
+    }
+    // eat any event whose plate the Forgetter now stands on
+    for (const id in G.level.plates) {
+      const pl = G.level.plates[id];
+      if (pl.x !== f.x || pl.y !== f.y) continue;
+      const victims = G.events.filter(e => e.plateId === id && !G.forgotten.has(key(e.actorId, e.plateId)));
+      if (victims.length) {
+        for (const v of victims) G.forgotten.add(key(v.actorId, v.plateId));
+        G.breathe = 1; Sound.erase();
+        resetCycle(false);       // history rewrites: the eaten event never was
+        computeEvents(); renderTimeline(); renderHUD();
+        return true;
+      }
+    }
+    return false;
   }
 
   function endCycle() {
@@ -821,6 +889,35 @@
       drawActor(rx, ry, cell, 'live');
     }
 
+    // the Forgetter
+    if (G.fpos) {
+      const fa = Math.min(1, G.ftimer / FORGET_SPEED);
+      const fx = ox + (lerp(G.fpos.px, G.fpos.x, fa) + 0.5) * cell;
+      const fy = oy + (lerp(G.fpos.py, G.fpos.y, fa) + 0.5) * cell;
+      drawForgetter(fx, fy, cell);
+    }
+
+    ctx.restore();
+  }
+
+  function drawForgetter(cx, cy, cell) {
+    const r = cell * 0.34;
+    const t = performance.now() / 1000;
+    ctx.save();
+    ctx.translate(cx, cy);
+    // a dark void that swallows light, ringed with a jittering violet edge
+    ctx.fillStyle = 'rgba(6,7,16,0.92)';
+    ctx.shadowBlur = 22; ctx.shadowColor = '#5a2a7a';
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(180,120,255,0.7)'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i <= 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const rr = r * (0.9 + 0.12 * Math.sin(a * 3 + t * 4));
+      const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath(); ctx.stroke();
     ctx.restore();
   }
 
@@ -1236,6 +1333,8 @@
     anchorRemembered: (id) => !!(G.level.anchors[id] && G.level.anchors[id].remembered),
     sensorLit: (id) => !!G.world.sensorLit[id],
     mirrorOrient: (id) => mirrorOrient(id, G.world),
+    forgetterPos: () => G.fpos ? { x: G.fpos.x, y: G.fpos.y } : null,
+    isForgotten: (actorId, plateId) => G.forgotten.has(actorId + '|' + plateId),
     seedStage: (id) => seedStage(id),
     eventCount: () => activeEventCount(),
     echoCount: () => G.echoes.length,
