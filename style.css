@@ -272,24 +272,25 @@ html, body {
 
   #stage { flex: 1 1 auto; min-height: 0; flex-direction: column; }
 
-  /* Board: square, capped, and allowed to shrink so the shop always fits */
-  #canvas {
-    flex: 0 1 auto;
-    width: 100%;
-    height: auto;
-    aspect-ratio: 1 / 1;
-    max-height: 42vh;
-    margin: 0 auto;
-  }
-
+  /* The shop is sized to its content (all gangs always fully visible)... */
   #shop {
-    flex: 1 1 auto;
-    min-height: 0;
+    flex: 0 0 auto;
     border-left: none;
     border-top: 2px solid var(--line);
     padding: 6px 8px;
     gap: 6px;
-    overflow: hidden;
+  }
+
+  /* ...and the square board simply takes whatever height is left, shrinking
+     as far as needed. No fixed vh, so it can't push the shop off-screen. */
+  #canvas {
+    flex: 0 1 auto;
+    min-height: 0;
+    height: 100%;
+    width: auto;
+    max-width: 100%;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto;
   }
 
   /* Wave button + upgrade panel sit right under the board */
@@ -321,9 +322,8 @@ html, body {
   .panel p { font-size: 18px; }
 }
 
-/* Small phones (e.g. iPhone SE): shrink board so all gangs still fit */
+/* Small phones (e.g. iPhone SE): tighten spacing to give the board room */
 @media (max-width: 900px) and (max-height: 620px) {
-  #canvas { max-height: 36vh; }
   #hud { gap: 3px; padding: 4px 8px; }
   .logo { font-size: 19px; }
   #shop { gap: 5px; }
@@ -331,9 +331,8 @@ html, body {
   .tower-card { padding: 4px 2px; }
 }
 
-/* Very short screens (landscape phones): shrink the board further */
+/* Very short screens (landscape phones): drop the logo for more height */
 @media (max-width: 900px) and (max-height: 480px) {
-  #canvas { max-height: 30vh; }
   .logo { display: none; }
 }
 
