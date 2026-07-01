@@ -77,6 +77,25 @@
     }
   };
 
+  const MAX_LEVEL = 5;
+
+  // Effective stats for a placed tower, scaled by its upgrade level.
+  function towerStats(tw) {
+    const b = TOWERS[tw.type];
+    const m = tw.level - 1;
+    return {
+      name: b.name,
+      range: b.range * (1 + 0.12 * m),
+      dmg: b.dmg * Math.pow(1.55, m),
+      rate: b.rate * Math.pow(0.85, m),
+      bullet: b.bullet + m * 0.6,
+      color: b.color, muzzle: b.muzzle,
+    };
+  }
+
+  // Cash needed to take a tower from its current level to the next.
+  const upgradeCost = (tw) => Math.round(TOWERS[tw.type].cost * (0.6 + tw.level * 0.35));
+
   /* ---------------------------------------------------------------------
      GAME STATE
   --------------------------------------------------------------------- */
@@ -89,6 +108,7 @@
     bullets: [],
     particles: [],
     selectedType: null,
+    selectedTower: null,
     hoverTile: null,
     spawnQueue: [],
     spawnTimer: 0,
@@ -111,6 +131,12 @@
     overlayTitle: document.getElementById('overlay-title'),
     overlayText: document.getElementById('overlay-text'),
     overlayBtn: document.getElementById('overlay-btn'),
+    towerPanel: document.getElementById('tower-panel'),
+    tpTitle: document.getElementById('tp-title'),
+    tpStats: document.getElementById('tp-stats'),
+    tpUpgrade: document.getElementById('tp-upgrade'),
+    tpSell: document.getElementById('tp-sell'),
+    tpClose: document.getElementById('tp-close'),
   };
 
   function buildShop() {
@@ -133,26 +159,86 @@
   }
 
   function selectType(key) {
+    if (state.waveActive) { flashHint('Building is locked until the wave is cleared.'); return; }
     if (state.cash < TOWERS[key].cost) return;
     state.selectedType = state.selectedType === key ? null : key;
+    state.selectedTower = null;      // picking a gang closes the upgrade panel
     refreshShop();
+    refreshTowerPanel();
   }
 
   function refreshShop() {
     for (const card of el.towerList.children) {
       const t = TOWERS[card.dataset.type];
       card.classList.toggle('selected', card.dataset.type === state.selectedType);
-      card.classList.toggle('cant', state.cash < t.cost);
+      // greyed out if too poor, or if a wave is running (can't build mid-wave)
+      card.classList.toggle('cant', state.cash < t.cost || state.waveActive);
     }
+  }
+
+  // --- Upgrade / sell panel -------------------------------------------------
+  function refreshTowerPanel() {
+    const tw = state.selectedTower;
+    if (!tw) { el.towerPanel.classList.add('hidden'); return; }
+    el.towerPanel.classList.remove('hidden');
+
+    const s = towerStats(tw);
+    el.tpTitle.textContent = `${s.name}  ·  LVL ${tw.level}/${MAX_LEVEL}`;
+    el.tpStats.innerHTML =
+      `<span>DMG ${Math.round(s.dmg)}</span>` +
+      `<span>RNG ${Math.round(s.range)}</span>` +
+      `<span>RATE ${(1 / s.rate).toFixed(1)}/s</span>`;
+
+    if (tw.level >= MAX_LEVEL) {
+      el.tpUpgrade.textContent = 'MAXED';
+      el.tpUpgrade.disabled = true;
+    } else {
+      const cost = upgradeCost(tw);
+      el.tpUpgrade.textContent = `UPGRADE $${cost}`;
+      el.tpUpgrade.disabled = state.cash < cost;
+    }
+    el.tpSell.textContent = `SELL $${sellValue(tw)}`;
+  }
+
+  const sellValue = (tw) => Math.round(tw.invested * 0.6);
+
+  function upgradeSelected() {
+    const tw = state.selectedTower;
+    if (!tw || tw.level >= MAX_LEVEL) return;
+    const cost = upgradeCost(tw);
+    if (state.cash < cost) { flashHint('Not enough cash to upgrade.'); return; }
+    state.cash -= cost;
+    tw.invested += cost;
+    tw.level++;
+    updateHUD();
+    refreshTowerPanel();
+  }
+
+  function sellSelected() {
+    const tw = state.selectedTower;
+    if (!tw) return;
+    state.cash += sellValue(tw);
+    state.towers = state.towers.filter(t => t !== tw);
+    state.selectedTower = null;
+    updateHUD();
+    refreshTowerPanel();
   }
 
   function updateHUD() {
     el.cash.textContent = state.cash;
     el.lives.textContent = state.lives;
     el.wave.textContent = state.wave;
-    el.startBtn.disabled = state.waveActive || state.over;
+    // The wave button always works (except on game over) so you can call the
+    // next wave in early; its label reflects the early-call bonus.
+    el.startBtn.disabled = state.over;
+    el.startBtn.textContent = state.waveActive
+      ? `SEND WAVE EARLY +$${earlyBonus()}`
+      : 'SEND NEXT WAVE';
     refreshShop();
+    refreshTowerPanel();
   }
+
+  const earlyBonus = () => 20 + state.wave * 4;
 
   /* ---------------------------------------------------------------------
      INPUT
@@ -166,7 +252,7 @@
   canvas.addEventListener('click', (e) => {
     if (justTouched) return; // ignore the click browsers synthesise after a tap
     const { c, r } = tileFromPoint(e.clientX, e.clientY);
-    placeTowerAt(c, r);
+    handleTap(c, r);
   });
 
   // --- Touch (iPhone / iPad / Android) ---
@@ -182,15 +268,35 @@
   canvas.addEventListener('touchmove', (e) => { e.preventDefault(); onTouch(e); }, { passive: false });
   canvas.addEventListener('touchend', (e) => {
     e.preventDefault();
-    if (state.hoverTile) placeTowerAt(state.hoverTile.c, state.hoverTile.r);
+    if (state.hoverTile) handleTap(state.hoverTile.c, state.hoverTile.r);
     state.hoverTile = null;
     justTouched = true;              // swallow the trailing synthetic click
     setTimeout(() => justTouched = false, 400);
   }, { passive: false });
 
+  // A tap either selects an existing tower (to upgrade/sell) or, if a gang is
+  // picked from the shop, tries to build on the tapped lot.
+  function handleTap(c, r) {
+    if (state.over || !inBounds(c, r)) return;
+
+    const existing = state.towers.find(t => t.c === c && t.r === r);
+    if (existing) {
+      state.selectedTower = existing;
+      state.selectedType = null;
+      updateHUD();
+      return;
+    }
+    if (state.selectedType) { placeTowerAt(c, r); return; }
+
+    // tapped empty ground with nothing selected → clear the panel
+    state.selectedTower = null;
+    updateHUD();
+  }
+
   function placeTowerAt(c, r) {
     if (!state.selectedType || state.over) return;
     if (!inBounds(c, r)) return;
+    if (state.waveActive) { flashHint('Building is locked until the wave is cleared.'); return; }
     if (isRoad(c, r)) { flashHint('Cars drive there — pick an empty lot.'); return; }
     if (state.towers.some(t => t.c === c && t.r === r)) { flashHint('Lot already taken.'); return; }
 
@@ -200,7 +306,8 @@
     state.cash -= type.cost;
     state.towers.push({
       c, r, x: c * TILE + TILE / 2, y: r * TILE + TILE / 2,
-      type: state.selectedType, cool: 0, angle: -Math.PI / 2
+      type: state.selectedType, level: 1, invested: type.cost,
+      cool: 0, angle: -Math.PI / 2
     });
     if (state.cash < type.cost) state.selectedType = null;
     updateHUD();
@@ -225,14 +332,19 @@
      WAVES
   --------------------------------------------------------------------- */
   function startWave() {
-    if (state.waveActive || state.over) return;
+    if (state.over) return;
+
+    // Calling a wave in while the previous one is still running pays a bonus
+    // and stacks the new cars onto whatever is still on the road.
+    const early = state.waveActive;
+    if (early) { state.cash += earlyBonus(); flashHint(`Wave called in early! +$${earlyBonus()}`); }
+
     state.wave++;
     state.waveActive = true;
 
     const n = 6 + state.wave * 2;
     const baseHp = 24 + state.wave * 14;
     const speed = 42 + state.wave * 2.2;
-    state.spawnQueue = [];
     for (let i = 0; i < n; i++) {
       // Every 5th wave rolls in a fat "boss" limo.
       const boss = state.wave % 5 === 0 && i === n - 1;
@@ -244,11 +356,14 @@
         color: boss ? '#b026ff' : pick(['#c23b22', '#2e7dd1', '#d8d8d8', '#3a3f47', '#caa53d'])
       });
     }
-    state.spawnTimer = 0;
+    if (!early) state.spawnTimer = 0;
     updateHUD();
   }
 
   el.startBtn.addEventListener('click', startWave);
+  el.tpUpgrade.addEventListener('click', upgradeSelected);
+  el.tpSell.addEventListener('click', sellSelected);
+  el.tpClose.addEventListener('click', () => { state.selectedTower = null; updateHUD(); });
 
   function spawnEnemy(def) {
     state.enemies.push({
@@ -305,7 +420,7 @@
 
     // towers acquire + fire
     for (const tw of state.towers) {
-      const cfg = TOWERS[tw.type];
+      const cfg = towerStats(tw);
       tw.cool -= dt;
       let target = null, best = -Infinity;
       for (const e of state.enemies) {
@@ -365,7 +480,7 @@
 
     if (hintTimer > 0) {
       hintTimer -= dt;
-      if (hintTimer <= 0) el.hint.textContent = 'Pick a gang, then tap an empty lot to deploy.';
+      if (hintTimer <= 0) el.hint.textContent = 'Build between waves. Tap a gang to deploy, tap a placed gang to upgrade.';
     }
     updateHUD();
   }
@@ -465,22 +580,40 @@
   }
 
   function drawRange() {
-    if (!state.selectedType || !state.hoverTile) return;
-    const { c, r } = state.hoverTile;
-    if (isRoad(c, r)) return;
-    const cfg = TOWERS[state.selectedType];
-    const x = c * TILE + TILE / 2, y = r * TILE + TILE / 2;
-    ctx.fillStyle = 'rgba(25,230,255,0.08)';
-    ctx.strokeStyle = 'rgba(25,230,255,0.5)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(x, y, cfg.range, 0, Math.PI * 2);
-    ctx.fill(); ctx.stroke();
+    // range of a placed tower that's selected for upgrade
+    if (state.selectedTower) {
+      const tw = state.selectedTower;
+      ctx.fillStyle = 'rgba(255,210,63,0.08)';
+      ctx.strokeStyle = 'rgba(255,210,63,0.6)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(tw.x, tw.y, towerStats(tw).range, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    }
+    // range preview while placing a new gang
+    if (state.selectedType && state.hoverTile) {
+      const { c, r } = state.hoverTile;
+      if (isRoad(c, r)) return;
+      const cfg = TOWERS[state.selectedType];
+      const x = c * TILE + TILE / 2, y = r * TILE + TILE / 2;
+      ctx.fillStyle = 'rgba(25,230,255,0.08)';
+      ctx.strokeStyle = 'rgba(25,230,255,0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x, y, cfg.range, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    }
   }
 
   function drawTowers() {
     for (const tw of state.towers) {
-      const cfg = TOWERS[tw.type];
+      const cfg = towerStats(tw);
+      // selection highlight
+      if (tw === state.selectedTower) {
+        ctx.strokeStyle = '#ffd23f';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(tw.c * TILE + 2, tw.r * TILE + 2, TILE - 4, TILE - 4);
+      }
       // base pad
       ctx.fillStyle = '#0c0d11';
       ctx.fillRect(tw.x - 15, tw.y - 15, 30, 30);
@@ -494,15 +627,22 @@
       ctx.fillRect(-8, -8, 16, 16);
       ctx.fillStyle = 'rgba(0,0,0,0.4)';
       ctx.fillRect(-8, -8, 16, 4);
-      // barrel
+      // barrel — thicker as the gang levels up
       ctx.fillStyle = '#0c0d11';
-      ctx.fillRect(4, -3, 16, 6);
+      const bl = 16 + (tw.level - 1) * 2;
+      ctx.fillRect(4, -3, bl, 6);
       // muzzle flash
       if (tw.flash > 0) {
         ctx.fillStyle = cfg.muzzle;
-        ctx.fillRect(18, -4, 8, 8);
+        ctx.fillRect(4 + bl, -4, 8, 8);
       }
       ctx.restore();
+
+      // upgrade level pips along the bottom of the pad
+      for (let i = 0; i < tw.level - 1; i++) {
+        ctx.fillStyle = '#ffd23f';
+        ctx.fillRect(tw.x - 12 + i * 6, tw.y + 10, 4, 3);
+      }
     }
   }
 
@@ -584,7 +724,7 @@
   function resetGame() {
     state.cash = 220; state.lives = 20; state.wave = 0;
     state.towers = []; state.enemies = []; state.bullets = []; state.particles = [];
-    state.spawnQueue = []; state.selectedType = null;
+    state.spawnQueue = []; state.selectedType = null; state.selectedTower = null;
     state.waveActive = false; state.over = false; state.running = true;
     updateHUD();
   }
@@ -610,7 +750,7 @@
   updateHUD();
   showOverlay(
     'WASTED CITY',
-    'Top-down gang warfare. Deploy crews on the empty lots and stop the cars before they reach the EXIT. Tap a gang in the shop, tap a lot, then SEND NEXT WAVE.',
+    'Top-down gang warfare. Between waves, deploy crews on the empty lots and tap a placed crew to UPGRADE it. Stop the cars before the EXIT. You can also SEND a wave in early for a cash bonus.',
     'HIT THE STREETS',
     () => { state.running = true; }
   );

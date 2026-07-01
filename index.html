@@ -28,6 +28,20 @@
         <aside id="shop">
           <h2>GANGS FOR HIRE</h2>
           <div id="tower-list"></div>
+
+          <!-- Upgrade / sell panel for a selected tower -->
+          <div id="tower-panel" class="tower-panel hidden">
+            <div class="tp-head">
+              <span id="tp-title">—</span>
+              <button id="tp-close" title="Deselect">✕</button>
+            </div>
+            <div id="tp-stats" class="tp-stats"></div>
+            <div class="tp-actions">
+              <button id="tp-upgrade" class="btn small">UPGRADE</button>
+              <button id="tp-sell" class="btn small sell">SELL</button>
+            </div>
+          </div>
+
           <button id="start-wave" class="btn">SEND NEXT WAVE</button>
           <p id="hint" class="hint">Pick a gang, then tap an empty lot to deploy.</p>
         </aside>

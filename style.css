@@ -166,8 +166,31 @@ html, body {
 .btn:active { transform: translateY(2px); border-bottom-width: 2px; }
 .btn:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.7); }
 .btn.big { font-size: 30px; padding: 12px 28px; }
+.btn.small { font-size: 18px; padding: 8px 8px; border-bottom-width: 3px; }
+.btn.sell { background: var(--neon-pink); border-bottom-color: #a01555; color: #1a0410; }
 
 #start-wave { margin-top: auto; }
+
+/* ===== Tower upgrade / sell panel ===== */
+.tower-panel {
+  border: 2px solid var(--neon-yellow);
+  background: #14140c;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tower-panel.hidden { display: none; }
+.tp-head { display: flex; align-items: center; justify-content: space-between; }
+#tp-title { font-size: 20px; color: var(--neon-yellow); letter-spacing: 1px; }
+#tp-close {
+  font-family: inherit; font-size: 18px; line-height: 1;
+  background: none; border: none; color: #9aa0ac; cursor: pointer; padding: 2px 6px;
+}
+#tp-close:hover { color: #fff; }
+.tp-stats { display: flex; gap: 10px; flex-wrap: wrap; font-size: 16px; color: #9fb0c2; }
+.tp-stats span { background: #0d0f14; border: 1px solid var(--line); padding: 2px 6px; }
+.tp-actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .hint { font-size: 16px; color: #6f7682; margin: 0; line-height: 1.1; }
 
 /* ===== Overlay ===== */
@@ -225,8 +248,9 @@ html, body {
 
   #shop { border-left: none; border-top: 2px solid var(--line); }
 
-  /* Put SEND NEXT WAVE right under the board so it's impossible to miss */
+  /* Keep the wave button and upgrade panel right under the board */
   #start-wave { order: -1; margin: 0 0 8px; }
+  #tower-panel { order: -2; margin: 0 0 8px; }
 
   #tower-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .tower-desc { display: none; }               /* save room on small screens */
