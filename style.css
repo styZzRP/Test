@@ -243,45 +243,98 @@ html, body {
 .flash { animation: flash .25s ease; }
 @keyframes flash { from { background: #fff; } to { background: var(--asphalt); } }
 
-/* ===== Mobile / iPhone: stack the shop under the board and scale to fit ===== */
+/* ===== Mobile / iPhone: everything on one screen, no scrolling ===== */
 @media (max-width: 900px) {
-  html, body { overflow: auto; -webkit-text-size-adjust: 100%; }
-  #crt { align-items: flex-start; }
-  #game-wrap { width: 100%; max-width: 100vw; }
+  html, body { height: 100%; overflow: hidden; -webkit-text-size-adjust: 100%; }
+  #crt { align-items: stretch; padding: 0; }
+  /* keep clear of the notch / home indicator without stealing board height */
+  #hud { padding-top: calc(5px + env(safe-area-inset-top)); }
+  #shop { padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
 
-  #hud { flex-direction: column; gap: 6px; padding: 8px; }
-  .logo { font-size: 30px; }
-  .stats { width: 100%; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
-  .stat { flex: 1; min-width: 62px; padding: 4px 6px; }
-  .stat span:last-child { font-size: 24px; }
-  .ctl { font-size: 18px; padding: 6px 8px; }
+  /* Fill the viewport with a flex column: HUD, board, shop */
+  #game-wrap {
+    width: 100%;
+    max-width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
 
-  #stage { flex-direction: column; }
+  #hud { flex: 0 0 auto; flex-direction: column; gap: 4px; padding: 5px 8px; }
+  .logo { font-size: 22px; }
+  .stats { width: 100%; justify-content: space-between; gap: 5px; flex-wrap: wrap; }
+  .stat { flex: 1 1 auto; min-width: 54px; padding: 2px 5px; }
+  .stat .label { font-size: 12px; }
+  .stat span:last-child { font-size: 19px; }
+  .ctl { font-size: 16px; padding: 5px 7px; }
 
-  /* Board becomes a square, capped so the controls below stay on-screen */
+  #stage { flex: 1 1 auto; min-height: 0; flex-direction: column; }
+
+  /* Board: square, capped, and allowed to shrink so the shop always fits */
   #canvas {
+    flex: 0 1 auto;
     width: 100%;
     height: auto;
     aspect-ratio: 1 / 1;
-    max-height: 56vh;
+    max-height: 42vh;
     margin: 0 auto;
   }
 
-  #shop { border-left: none; border-top: 2px solid var(--line); }
+  #shop {
+    flex: 1 1 auto;
+    min-height: 0;
+    border-left: none;
+    border-top: 2px solid var(--line);
+    padding: 6px 8px;
+    gap: 6px;
+    overflow: hidden;
+  }
 
-  /* Keep the wave button and upgrade panel right under the board */
-  #start-wave { order: -1; margin: 0 0 8px; }
-  #tower-panel { order: -2; margin: 0 0 8px; }
+  /* Wave button + upgrade panel sit right under the board */
+  #start-wave { order: -1; margin: 0; }
+  #tower-panel { order: -2; margin: 0; padding: 5px 8px; gap: 5px; }
+  #tp-title { font-size: 17px; }
+  .tp-stats { font-size: 14px; gap: 6px; }
 
-  #tower-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .tower-desc { display: none; }               /* save room on small screens */
-  .tower-card { grid-template-columns: 26px 1fr auto; padding: 8px 6px; }
+  /* All 7 gangs visible at once: 4-column compact cards */
+  #tower-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+  .tower-desc { display: none; }
+  .tower-card {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    gap: 2px;
+    padding: 5px 2px;
+  }
+  .tower-icon { width: 20px; height: 20px; }
+  .tower-name { font-size: 13px; line-height: 1; }
+  .tower-cost { font-size: 14px; }
 
-  /* Comfortable tap targets */
-  .btn { padding: 14px 10px; font-size: 24px; }
-  .btn.big { font-size: 26px; padding: 14px 22px; }
-  .panel { padding: 24px 22px; margin: 0 12px; }
-  .panel h2 { font-size: 40px; }
+  .hint { display: none; }               /* non-essential; frees vertical room */
+
+  .btn { padding: 10px 8px; font-size: 22px; }
+  .btn.small { font-size: 16px; padding: 7px 6px; }
+  .panel { padding: 22px 20px; margin: auto; }
+  .panel h2 { font-size: 38px; }
+  .panel p { font-size: 18px; }
+}
+
+/* Small phones (e.g. iPhone SE): shrink board so all gangs still fit */
+@media (max-width: 900px) and (max-height: 620px) {
+  #canvas { max-height: 36vh; }
+  #hud { gap: 3px; padding: 4px 8px; }
+  .logo { font-size: 19px; }
+  #shop { gap: 5px; }
+  #tower-list { gap: 4px; }
+  .tower-card { padding: 4px 2px; }
+}
+
+/* Very short screens (landscape phones): shrink the board further */
+@media (max-width: 900px) and (max-height: 480px) {
+  #canvas { max-height: 30vh; }
+  .logo { display: none; }
 }
 
 /* Honour the iPhone notch / home-indicator safe areas */
