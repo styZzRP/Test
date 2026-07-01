@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>EchoWeave</title>
+  <link rel="stylesheet" href="style.css?v=1" />
+</head>
+<body>
+  <div id="app">
+    <!-- Top status bar -->
+    <header id="hud">
+      <div class="hud-block level">
+        <span class="tiny">LEVEL <span id="level-num">1</span></span>
+        <span id="level-name">De eerste echo</span>
+      </div>
+      <div class="hud-block echoes">
+        <span class="tiny">ECHO'S</span>
+        <span id="echo-dots" class="dots"></span>
+      </div>
+      <div class="hud-block erase">
+        <span class="tiny">WISSEN</span>
+        <span id="erase-count">0/2</span>
+      </div>
+      <div class="hud-block cycle">
+        <svg id="cycle-ring" viewBox="0 0 36 36" width="34" height="34">
+          <circle class="ring-bg" cx="18" cy="18" r="15.5"></circle>
+          <circle id="ring-fg" class="ring-fg" cx="18" cy="18" r="15.5"></circle>
+        </svg>
+      </div>
+    </header>
+
+    <!-- Play area -->
+    <main id="board">
+      <canvas id="canvas" width="720" height="720"></canvas>
+
+      <!-- One-thumb controls -->
+      <div id="joystick" class="pad">
+        <div id="joy-base" class="joy-base"><div id="joy-knob" class="joy-knob"></div></div>
+      </div>
+      <div id="actions" class="pad">
+        <button id="btn-weave" class="round" title="Weef een echo">WEEF</button>
+        <button id="btn-restart" class="round small" title="Herstart level">↺</button>
+      </div>
+
+      <!-- Win / intro overlay -->
+      <div id="overlay" class="overlay">
+        <div class="panel">
+          <h1 id="ov-title">EchoWeave</h1>
+          <p id="ov-text"></p>
+          <button id="ov-btn" class="wide">START</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Timeline of events -->
+    <footer id="timeline-wrap">
+      <div class="tl-line"></div>
+      <div id="timeline" class="timeline"></div>
+      <div class="tl-line"></div>
+    </footer>
+
+    <!-- Radial-ish popup for an event -->
+    <div id="event-menu" class="event-menu hidden">
+      <button data-act="erase">Wissen</button>
+      <button data-act="view">Bekijken</button>
+      <button data-act="cancel">Annuleren</button>
+    </div>
+  </div>
+  <script src="game.js?v=1"></script>
+</body>
+</html>
