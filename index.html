@@ -2,85 +2,328 @@
 <html lang="nl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <title>EchoWeave</title>
-  <link rel="stylesheet" href="style.css?v=10" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lancee Installatietechniek — Erkend Elektricien</title>
+  <meta name="description" content="Lancee Installatietechniek: uw erkende elektricien voor groepenkasten, laadpalen, zonnepanelen, verlichting en storingsdienst. Vakwerk onder spanning." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
 </head>
 <body>
-  <div id="app">
-    <!-- Top status bar -->
-    <header id="hud">
-      <div class="hud-block level">
-        <span class="tiny">LEVEL <span id="level-num">1</span></span>
-        <span id="level-name">De eerste echo</span>
-      </div>
-      <div class="hud-block echoes">
-        <span class="tiny">ECHO'S</span>
-        <span id="echo-dots" class="dots"></span>
-      </div>
-      <div class="hud-block erase">
-        <span class="tiny">WISSEN</span>
-        <span id="erase-count">0/2</span>
-      </div>
-      <button id="btn-levels" class="hud-icon" title="Kies level">&#9776;</button>
-      <div class="hud-block cycle">
-        <svg id="cycle-ring" viewBox="0 0 36 36" width="34" height="34">
-          <circle class="ring-bg" cx="18" cy="18" r="15.5"></circle>
-          <circle id="ring-fg" class="ring-fg" cx="18" cy="18" r="15.5"></circle>
-        </svg>
-      </div>
-    </header>
 
-    <!-- Play area -->
-    <main id="board">
-      <canvas id="canvas" width="720" height="720"></canvas>
+  <!-- ELEKTRISCH CANVAS (deeltjes + bliksem) -->
+  <canvas id="electric-canvas" aria-hidden="true"></canvas>
 
-      <!-- One-thumb controls: drag anywhere on the board to steer -->
-      <div id="joystick">
-        <div id="joy-base" class="joy-base"><div id="joy-knob" class="joy-knob"></div></div>
+  <!-- CURSOR GLOED -->
+  <div class="cursor-glow" aria-hidden="true"></div>
+
+  <!-- NAVIGATIE -->
+  <header class="nav" id="nav">
+    <a href="#home" class="nav__logo">
+      <span class="nav__bolt">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z" fill="currentColor"/></svg>
+      </span>
+      <span class="nav__name">LANCEE<em>Installatietechniek</em></span>
+    </a>
+    <nav class="nav__links" id="navLinks">
+      <a href="#diensten">Diensten</a>
+      <a href="#over">Over ons</a>
+      <a href="#werkwijze">Werkwijze</a>
+      <a href="#reviews">Reviews</a>
+      <a href="#contact" class="nav__cta">⚡ Direct contact</a>
+    </nav>
+    <button class="nav__burger" id="navBurger" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </header>
+
+  <!-- HERO -->
+  <section class="hero" id="home">
+    <div class="hero__grid" aria-hidden="true"></div>
+    <div class="hero__inner">
+      <p class="hero__kicker reveal"><span class="pulse-dot"></span> 24/7 storingsdienst · Erkend installateur</p>
+      <h1 class="hero__title">
+        <span class="reveal d1">VAKWERK</span>
+        <span class="hero__title-flash reveal d2">ONDER <b class="flicker">SPANNING</b></span>
+      </h1>
+      <p class="hero__sub reveal d3">
+        Van groepenkast tot laadpaal, van slimme verlichting tot complete renovatie —
+        Lancee Installatietechniek zet elke klus strak onder stroom. Veilig, snel en gegarandeerd volgens NEN&nbsp;1010.
+      </p>
+      <div class="hero__actions reveal d4">
+        <a href="#contact" class="btn btn--primary">
+          <span class="btn__spark"></span>
+          Vraag gratis offerte aan
+        </a>
+        <a href="tel:0612345678" class="btn btn--ghost">
+          <svg viewBox="0 0 24 24" fill="none" class="btn__icon"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          06 – 12 34 56 78
+        </a>
       </div>
-      <div id="actions" class="pad">
-        <button id="btn-weave" class="round" title="Weef een echo">WEEF</button>
-        <button id="btn-restart" class="round small" title="Herstart level">↺</button>
+      <div class="hero__stats reveal d5">
+        <div class="stat"><span class="stat__num" data-count="15">0</span><span class="stat__plus">+</span><span class="stat__label">jaar ervaring</span></div>
+        <div class="stat"><span class="stat__num" data-count="1200">0</span><span class="stat__plus">+</span><span class="stat__label">projecten opgeleverd</span></div>
+        <div class="stat"><span class="stat__num" data-count="98">0</span><span class="stat__plus">%</span><span class="stat__label">klanttevredenheid</span></div>
       </div>
+    </div>
 
-      <!-- Win / intro overlay -->
-      <div id="overlay" class="overlay">
-        <div class="panel">
-          <h1 id="ov-title">EchoWeave</h1>
-          <p id="ov-text"></p>
-          <button id="ov-btn" class="wide">START</button>
-        </div>
-      </div>
+    <!-- Zwevende stroomdraad SVG -->
+    <svg class="hero__wire" viewBox="0 0 1440 220" preserveAspectRatio="none" aria-hidden="true">
+      <path class="wire-path" d="M-10,110 C240,30 420,190 720,110 C1020,30 1200,190 1450,110" fill="none"/>
+      <circle class="wire-pulse" r="5"/>
+    </svg>
+  </section>
 
-      <!-- Level select -->
-      <div id="levelselect" class="overlay hidden">
-        <div class="panel panel-wide">
-          <h1>LEVELS</h1>
-          <div id="level-grid" class="level-grid"></div>
-          <button id="ls-close" class="wide ghost">SLUITEN</button>
-        </div>
-      </div>
-    </main>
-
-    <!-- Timeline of events -->
-    <footer id="timeline-wrap">
-      <div class="tl-line"></div>
-      <div id="timeline" class="timeline"></div>
-      <div class="tl-line"></div>
-    </footer>
-
-    <!-- Radial-ish popup for an event -->
-    <div id="event-menu" class="event-menu hidden">
-      <button data-act="erase">Wissen</button>
-      <button data-act="move" class="move-btn">Verschuif</button>
-      <button data-act="view">Bekijken</button>
-      <button data-act="cancel">Annuleren</button>
+  <!-- MARQUEE -->
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee__track">
+      <span>⚡ Groepenkasten</span><span>✦</span><span>⚡ Laadpalen</span><span>✦</span>
+      <span>⚡ Zonnepanelen</span><span>✦</span><span>⚡ Verlichting</span><span>✦</span>
+      <span>⚡ Domotica</span><span>✦</span><span>⚡ Storingsdienst</span><span>✦</span>
+      <span>⚡ Groepenkasten</span><span>✦</span><span>⚡ Laadpalen</span><span>✦</span>
+      <span>⚡ Zonnepanelen</span><span>✦</span><span>⚡ Verlichting</span><span>✦</span>
+      <span>⚡ Domotica</span><span>✦</span><span>⚡ Storingsdienst</span><span>✦</span>
     </div>
   </div>
-  <script src="game.js?v=10"></script>
+
+  <!-- DIENSTEN -->
+  <section class="section" id="diensten">
+    <div class="section__head reveal">
+      <p class="section__kicker">// Onze diensten</p>
+      <h2 class="section__title">Alles wat <span class="grad-text">stroom</span> nodig heeft</h2>
+      <p class="section__sub">Eén aanspreekpunt voor al uw elektrotechniek — thuis en zakelijk.</p>
+    </div>
+
+    <div class="cards">
+      <article class="card reveal" style="--hue: 190">
+        <div class="card__icon">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="3" width="16" height="18" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 7h3M8 11h3M8 15h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="15.5" cy="7" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="15" r="1.2" fill="currentColor"/></svg>
+        </div>
+        <h3>Groepenkasten</h3>
+        <p>Vervanging of uitbreiding van uw meterkast. Veilig, toekomstbestendig en volledig conform NEN&nbsp;1010.</p>
+        <span class="card__num">01</span>
+      </article>
+
+      <article class="card reveal" style="--hue: 150">
+        <div class="card__icon">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M7 21V8a3 3 0 0 1 3-3h4a3 3 0 0 1 3 3v13" stroke="currentColor" stroke-width="1.6"/><path d="M5 21h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12.5 8.5 10.5 12h3l-2 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <h3>Laadpalen</h3>
+        <p>Thuis of op de zaak elektrisch laden? Wij installeren uw laadpaal inclusief loadbalancing en slimme sturing.</p>
+        <span class="card__num">02</span>
+      </article>
+
+      <article class="card reveal" style="--hue: 45">
+        <div class="card__icon">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </div>
+        <h3>Zonnepanelen</h3>
+        <p>Complete zonnestroominstallaties: panelen, omvormer, aansluiting op de meterkast en monitoring.</p>
+        <span class="card__num">03</span>
+      </article>
+
+      <article class="card reveal" style="--hue: 280">
+        <div class="card__icon">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M9 18h6M10 21h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.8.6 1.5 1.3 1.5 2.1h4c0-.8.7-1.5 1.5-2.1A6 6 0 0 0 12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </div>
+        <h3>Verlichting</h3>
+        <p>Sfeervolle LED-verlichting, buitenverlichting en lichtplannen die uw woning of bedrijf laten stralen.</p>
+        <span class="card__num">04</span>
+      </article>
+
+      <article class="card reveal" style="--hue: 330">
+        <div class="card__icon">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M3 11 12 4l9 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 10v9h14v-9" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="14" r="2.2" stroke="currentColor" stroke-width="1.6"/><path d="M12 10.5v1.3M12 16.2v1.3M15.5 14h-1.3M9.8 14H8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </div>
+        <h3>Domotica &amp; Smart Home</h3>
+        <p>Bedien verlichting, verwarming en zonwering met één app. Wij maken uw huis slimmer dan ooit.</p>
+        <span class="card__num">05</span>
+      </article>
+
+      <article class="card card--alert reveal" style="--hue: 10">
+        <div class="card__icon">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 3 2.5 20h19L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9.5v4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="17" r="1.1" fill="currentColor"/></svg>
+        </div>
+        <h3>24/7 Storingsdienst</h3>
+        <p>Kortsluiting of uitval? Onze monteurs staan dag en nacht paraat. Bel en wij zijn onderweg.</p>
+        <span class="card__num">SOS</span>
+      </article>
+    </div>
+  </section>
+
+  <!-- OVER ONS -->
+  <section class="section section--split" id="over">
+    <div class="split__visual reveal" aria-hidden="true">
+      <div class="circuit-frame">
+        <svg class="circuit" viewBox="0 0 400 400">
+          <defs>
+            <linearGradient id="cgrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#facc15"/>
+            </linearGradient>
+          </defs>
+          <g class="circuit__lines" stroke="url(#cgrad)" fill="none" stroke-width="2">
+            <path class="cl" d="M40 200 H140 V100 H240 V180 H360"/>
+            <path class="cl" d="M40 260 H100 V320 H220 V240 H360"/>
+            <path class="cl" d="M40 120 H90 V60 H300 V140"/>
+            <path class="cl" d="M200 360 V300 H320 V220"/>
+          </g>
+          <g class="circuit__nodes" fill="#22d3ee">
+            <circle cx="140" cy="100" r="5"/><circle cx="240" cy="180" r="5"/>
+            <circle cx="100" cy="320" r="5"/><circle cx="220" cy="240" r="5"/>
+            <circle cx="90" cy="60" r="5"/><circle cx="300" cy="140" r="5"/>
+            <circle cx="320" cy="220" r="5"/>
+          </g>
+          <g class="circuit__chip">
+            <rect x="160" y="160" width="80" height="80" rx="10" fill="#0b1220" stroke="url(#cgrad)" stroke-width="2"/>
+            <path d="M193 175 182 202h12l-9 23 22-28h-13l8-22z" fill="#facc15"/>
+          </g>
+        </svg>
+        <div class="circuit-frame__glow"></div>
+      </div>
+    </div>
+    <div class="split__text">
+      <p class="section__kicker reveal">// Over Lancee</p>
+      <h2 class="section__title reveal">De vonk die <span class="grad-text">oversloeg</span> naar vakmanschap</h2>
+      <p class="reveal">
+        Lancee Installatietechniek is een no-nonsense elektrotechnisch installatiebedrijf.
+        Wat begon met een gereedschapskist en een bus, groeide uit tot een allround
+        installatiepartner voor particulieren, VvE's en bedrijven in de regio.
+      </p>
+      <ul class="checklist reveal">
+        <li><span>⚡</span> Erkend installateur — gecertificeerd &amp; verzekerd</li>
+        <li><span>⚡</span> Vaste aanspreekpunten, geen callcenters</li>
+        <li><span>⚡</span> Heldere offertes zonder kleine lettertjes</li>
+        <li><span>⚡</span> Garantie op al ons installatiewerk</li>
+      </ul>
+      <a href="#contact" class="btn btn--primary reveal"><span class="btn__spark"></span>Maak kennis met ons</a>
+    </div>
+  </section>
+
+  <!-- WERKWIJZE -->
+  <section class="section" id="werkwijze">
+    <div class="section__head reveal">
+      <p class="section__kicker">// Werkwijze</p>
+      <h2 class="section__title">Van eerste vonk tot <span class="grad-text">oplevering</span></h2>
+    </div>
+    <div class="timeline">
+      <div class="timeline__line" aria-hidden="true"><span class="timeline__spark"></span></div>
+      <div class="step reveal">
+        <div class="step__badge">1</div>
+        <h3>Kennismaking</h3>
+        <p>U belt of mailt, wij luisteren. Binnen 24 uur heeft u reactie en plannen we een vrijblijvende afspraak in.</p>
+      </div>
+      <div class="step reveal">
+        <div class="step__badge">2</div>
+        <h3>Offerte op maat</h3>
+        <p>Een glasheldere offerte met vaste prijzen. U weet exact waar u aan toe bent — geen verrassingen achteraf.</p>
+      </div>
+      <div class="step reveal">
+        <div class="step__badge">3</div>
+        <h3>Uitvoering</h3>
+        <p>Onze monteurs werken netjes, snel en veilig. Wij laten uw woning schoner achter dan we hem aantroffen.</p>
+      </div>
+      <div class="step reveal">
+        <div class="step__badge">4</div>
+        <h3>Oplevering &amp; garantie</h3>
+        <p>Samen lopen we alles na. Pas als ú tevreden bent, zijn wij dat ook. Inclusief garantie en nazorg.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- REVIEWS -->
+  <section class="section" id="reviews">
+    <div class="section__head reveal">
+      <p class="section__kicker">// Reviews</p>
+      <h2 class="section__title">Klanten staan <span class="grad-text">positief</span> geladen</h2>
+    </div>
+    <div class="reviews">
+      <figure class="review reveal">
+        <div class="review__stars">★★★★★</div>
+        <blockquote>"Groepenkast vervangen én een laadpaal geplaatst in één dag. Strak werk, alles netjes weggewerkt. Echte vakmensen."</blockquote>
+        <figcaption>— Familie de Vries, particulier</figcaption>
+      </figure>
+      <figure class="review reveal">
+        <div class="review__stars">★★★★★</div>
+        <blockquote>"Storing op zondagavond, om 21:30 stond er al een monteur voor de deur. Dit noem ik nou service."</blockquote>
+        <figcaption>— Bakkerij Van Dam, zakelijk</figcaption>
+      </figure>
+      <figure class="review reveal">
+        <div class="review__stars">★★★★★</div>
+        <blockquote>"Compleet lichtplan voor onze nieuwbouwwoning. Denkt echt mee en de prijs was exact zoals afgesproken."</blockquote>
+        <figcaption>— Sanne &amp; Jeroen, nieuwbouw</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- CTA BANNER -->
+  <section class="cta-banner reveal">
+    <div class="cta-banner__bolt" aria-hidden="true">⚡</div>
+    <h2>Spanning op de lijn?</h2>
+    <p>Bel direct of vraag binnen één minuut een offerte aan. Wij nemen razendsnel contact op.</p>
+    <div class="hero__actions">
+      <a href="tel:0612345678" class="btn btn--light">Bel 06 – 12 34 56 78</a>
+      <a href="#contact" class="btn btn--ghost btn--ghost-dark">Offerte aanvragen</a>
+    </div>
+  </section>
+
+  <!-- CONTACT -->
+  <section class="section section--split" id="contact">
+    <div class="split__text">
+      <p class="section__kicker reveal">// Contact</p>
+      <h2 class="section__title reveal">Sluit u aan op <span class="grad-text">Lancee</span></h2>
+      <p class="reveal">Vertel ons kort wat u nodig heeft, dan nemen wij binnen één werkdag contact met u op.</p>
+      <div class="contact-lines reveal">
+        <a href="tel:0612345678" class="contact-line"><span class="contact-line__icon">📞</span> 06 – 12 34 56 78</a>
+        <a href="mailto:info@lancee-installatietechniek.nl" class="contact-line"><span class="contact-line__icon">✉️</span> info@lancee-installatietechniek.nl</a>
+        <span class="contact-line"><span class="contact-line__icon">📍</span> Werkgebied: heel de regio &amp; omstreken</span>
+        <span class="contact-line"><span class="contact-line__icon">🕘</span> Ma–vr 07:30–17:00 · Storing: 24/7</span>
+      </div>
+    </div>
+    <form class="form reveal" id="contactForm">
+      <div class="form__row">
+        <label>Naam<input type="text" name="naam" placeholder="Uw naam" required /></label>
+        <label>Telefoon<input type="tel" name="telefoon" placeholder="06 – 12 34 56 78" required /></label>
+      </div>
+      <label>E-mail<input type="email" name="email" placeholder="uw@email.nl" required /></label>
+      <label>Waar kunnen we mee helpen?
+        <select name="dienst">
+          <option>Groepenkast</option>
+          <option>Laadpaal</option>
+          <option>Zonnepanelen</option>
+          <option>Verlichting</option>
+          <option>Domotica / Smart home</option>
+          <option>Storing</option>
+          <option>Anders</option>
+        </select>
+      </label>
+      <label>Uw bericht<textarea name="bericht" rows="4" placeholder="Omschrijf kort uw klus of vraag…"></textarea></label>
+      <button type="submit" class="btn btn--primary btn--full"><span class="btn__spark"></span>Verstuur aanvraag ⚡</button>
+      <p class="form__success" id="formSuccess" hidden>⚡ Bedankt! Uw aanvraag staat onder stroom — we bellen u snel terug.</p>
+    </form>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="footer__inner">
+      <div class="footer__brand">
+        <span class="nav__bolt"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z" fill="currentColor"/></svg></span>
+        <div>
+          <strong>LANCEE Installatietechniek</strong>
+          <p>Vakwerk onder spanning — erkend elektrotechnisch installateur.</p>
+        </div>
+      </div>
+      <nav class="footer__links">
+        <a href="#diensten">Diensten</a>
+        <a href="#over">Over ons</a>
+        <a href="#werkwijze">Werkwijze</a>
+        <a href="#contact">Contact</a>
+      </nav>
+      <p class="footer__meta">© <span id="year"></span> Lancee Installatietechniek · KvK 00000000 · Alle rechten voorbehouden</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
 </body>
 </html>
