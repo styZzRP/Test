@@ -313,6 +313,7 @@ html, body {
   .tower-name { font-size: 13px; line-height: 1; }
   .tower-cost { font-size: 14px; }
 
+  #shop h2 { display: none; }            /* label is obvious; save the row */
   .hint { display: none; }               /* non-essential; frees vertical room */
 
   .btn { padding: 10px 8px; font-size: 22px; }
