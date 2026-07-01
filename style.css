@@ -80,6 +80,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: none;   /* the whole board is a steering surface */
 }
 #canvas {
   width: 100%;
@@ -95,8 +96,18 @@ html, body {
   z-index: 5;
   touch-action: none;
 }
-#joystick { left: 14px; }
 #actions { right: 14px; display: flex; flex-direction: column-reverse; align-items: center; gap: 12px; }
+
+/* Floating joystick: appears under the thumb wherever the board is touched */
+#joystick {
+  position: absolute;
+  z-index: 4;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+#joystick.active { opacity: 1; }
 
 .joy-base {
   width: 108px; height: 108px;

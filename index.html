@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
   <title>EchoWeave</title>
-  <link rel="stylesheet" href="style.css?v=1" />
+  <link rel="stylesheet" href="style.css?v=2" />
 </head>
 <body>
   <div id="app">
@@ -37,8 +37,8 @@
     <main id="board">
       <canvas id="canvas" width="720" height="720"></canvas>
 
-      <!-- One-thumb controls -->
-      <div id="joystick" class="pad">
+      <!-- One-thumb controls: drag anywhere on the board to steer -->
+      <div id="joystick">
         <div id="joy-base" class="joy-base"><div id="joy-knob" class="joy-knob"></div></div>
       </div>
       <div id="actions" class="pad">
@@ -70,6 +70,6 @@
       <button data-act="cancel">Annuleren</button>
     </div>
   </div>
-  <script src="game.js?v=1"></script>
+  <script src="game.js?v=2"></script>
 </body>
 </html>

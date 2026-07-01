@@ -693,29 +693,55 @@
     return 0;
   }
 
-  // Joystick
-  const joyBase = document.getElementById('joy-base');
+  // Floating drag-to-steer: touch anywhere on the board and drag toward
+  // where you want to go. The stick appears under the thumb and trails it.
+  const board = document.getElementById('board');
+  const actions = document.getElementById('actions');
+  const joy = document.getElementById('joystick');
   const joyKnob = document.getElementById('joy-knob');
-  let joyId = null, joyDir = 0;
-  function joyStart(e) { joyId = e.pointerId; joyBase.setPointerCapture(e.pointerId); joyMove(e); }
-  function joyMove(e) {
-    if (joyId !== e.pointerId) return;
-    const r = joyBase.getBoundingClientRect();
-    let dx = e.clientX - (r.left + r.width / 2);
-    let dy = e.clientY - (r.top + r.height / 2);
-    const dist = Math.hypot(dx, dy);
-    const max = r.width / 2;
-    const kx = Math.max(-max, Math.min(max, dx));
-    const ky = Math.max(-max, Math.min(max, dy));
-    joyKnob.style.transform = `translate(${kx}px, ${ky}px)`;
-    if (dist < max * 0.35) joyDir = 0;
-    else joyDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 4 : 3) : (dy > 0 ? 2 : 1);
+  const LEASH = 48, DEAD = 12;
+  let steerId = null, ox = 0, oy = 0, joyDir = 0;
+
+  function placeJoy(clientX, clientY) {
+    const r = board.getBoundingClientRect();
+    joy.style.left = (clientX - r.left) + 'px';
+    joy.style.top = (clientY - r.top) + 'px';
   }
-  function joyEnd(e) { if (joyId !== e.pointerId) return; joyId = null; joyDir = 0; joyKnob.style.transform = 'translate(0,0)'; }
-  joyBase.addEventListener('pointerdown', joyStart);
-  joyBase.addEventListener('pointermove', joyMove);
-  joyBase.addEventListener('pointerup', joyEnd);
-  joyBase.addEventListener('pointercancel', joyEnd);
+  function steerStart(e) {
+    if (actions.contains(e.target)) return;                 // don't steal button taps
+    if (!el.overlay.classList.contains('hidden')) return;   // ignore while overlay up
+    steerId = e.pointerId;
+    ox = e.clientX; oy = e.clientY;
+    placeJoy(ox, oy);
+    joyKnob.style.transform = 'translate(0,0)';
+    joy.classList.add('active');
+    joyDir = 0;
+    Sound.init();
+    e.preventDefault();
+  }
+  function steerMove(e) {
+    if (e.pointerId !== steerId) return;
+    let dx = e.clientX - ox, dy = e.clientY - oy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > LEASH) {                                      // trail the origin along
+      ox = e.clientX - (dx / dist) * LEASH;
+      oy = e.clientY - (dy / dist) * LEASH;
+      placeJoy(ox, oy);
+      dx = e.clientX - ox; dy = e.clientY - oy;
+    }
+    joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+    joyDir = dist < DEAD ? 0 : (Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 4 : 3) : (dy > 0 ? 2 : 1));
+    e.preventDefault();
+  }
+  function steerEnd(e) {
+    if (e.pointerId !== steerId) return;
+    steerId = null; joyDir = 0;
+    joy.classList.remove('active');
+  }
+  board.addEventListener('pointerdown', steerStart);
+  board.addEventListener('pointermove', steerMove);
+  board.addEventListener('pointerup', steerEnd);
+  board.addEventListener('pointercancel', steerEnd);
 
   document.getElementById('btn-weave').addEventListener('click', () => { Sound.init(); weaveNow(); });
   document.getElementById('btn-restart').addEventListener('click', restart);
