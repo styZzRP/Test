@@ -319,6 +319,33 @@
       doors: { a: { all: true, controllers: [{ plate: 'A' }, { plate: 'B' }] } },
       lasers: {},
     },
+    {
+      name: 'De Machine',
+      hint: 'Het slot opent alleen met beide knoppen (A en B) tegelijk bezet. Maar op ' +
+            'weg ernaartoe raken je echo\'s twee grendel-platen (C en D) die het slot ' +
+            'dichthouden. Vind de twee cruciale gebeurtenissen en WIS ze allebei.',
+      rows: [
+        '#############',
+        '#P..........#',
+        '#.C.......D.#',
+        '#.A.......B.#',
+        '#...........#',
+        '######a######',
+        '#.....G.....#',
+        '#############',
+      ],
+      plates: {
+        A: { kind: 'pressure' }, B: { kind: 'pressure' },
+        C: { kind: 'latch' }, D: { kind: 'latch' },
+      },
+      doors: {
+        a: {
+          all: true,
+          controllers: [{ plate: 'A' }, { plate: 'B' }, { plate: 'C', close: true }, { plate: 'D', close: true }],
+        },
+      },
+      lasers: {},
+    },
   ];
 
   /* ---------------------------------------------------------------------
@@ -805,13 +832,40 @@
   function winLevel() {
     G.won = true; G.running = false;
     Sound.win();
+    markDone(G.levelIndex);
     const last = G.levelIndex >= LEVELS.length - 1;
     showOverlay('OPGELOST', last
-      ? 'Je hebt alle kamers herschreven. Meer werelden (spiegels, blokken, verplaatsen van tijd) komen eraan.'
+      ? 'Je hebt elke kamer herschreven. Kies een level om opnieuw te weven.'
       : 'De tijdlijn klopt. De kamer ademt uit.',
-      last ? 'OPNIEUW' : 'VOLGENDE', () => {
-        loadLevel(last ? 0 : G.levelIndex + 1);
+      last ? 'LEVELS' : 'VOLGENDE', () => {
+        if (last) openLevelSelect(); else loadLevel(G.levelIndex + 1);
       });
+  }
+
+  /* ---------------------------------------------------------------------
+     LEVEL SELECT + PROGRESS
+  --------------------------------------------------------------------- */
+  function loadDone() {
+    try { return new Set(JSON.parse(localStorage.getItem('ew.done') || '[]')); }
+    catch (e) { return new Set(); }
+  }
+  let DONE = loadDone();
+  function markDone(i) {
+    DONE.add(i);
+    try { localStorage.setItem('ew.done', JSON.stringify([...DONE])); } catch (e) {}
+  }
+
+  function openLevelSelect() {
+    el.levelGrid.innerHTML = '';
+    LEVELS.forEach((lv, i) => {
+      const b = document.createElement('button');
+      b.className = 'lvl' + (DONE.has(i) ? ' done' : '') + (i === G.levelIndex ? ' current' : '');
+      b.innerHTML = `<span class="num">${i + 1}</span><span class="nm">${lv.name}</span>`;
+      b.addEventListener('click', () => { el.levelSelect.classList.add('hidden'); loadLevel(i); });
+      el.levelGrid.appendChild(b);
+    });
+    el.overlay.classList.add('hidden');
+    el.levelSelect.classList.remove('hidden');
   }
 
   /* ---------------------------------------------------------------------
@@ -1201,6 +1255,10 @@
     ovText: document.getElementById('ov-text'),
     ovBtn: document.getElementById('ov-btn'),
     menu: document.getElementById('event-menu'),
+    levelSelect: document.getElementById('levelselect'),
+    levelGrid: document.getElementById('level-grid'),
+    btnLevels: document.getElementById('btn-levels'),
+    lsClose: document.getElementById('ls-close'),
   };
   const RING_LEN = 2 * Math.PI * 15.5;
   el.ringFg.style.strokeDasharray = RING_LEN;
@@ -1376,6 +1434,11 @@
 
   document.getElementById('btn-weave').addEventListener('click', () => { Sound.init(); weaveNow(); });
   document.getElementById('btn-restart').addEventListener('click', restart);
+  el.btnLevels.addEventListener('click', () => { Sound.init(); openLevelSelect(); });
+  el.lsClose.addEventListener('click', () => {
+    el.levelSelect.classList.add('hidden');
+    if (!G.running && !G.won) el.overlay.classList.remove('hidden'); // restore intro if not playing
+  });
 
   function restart() { if (G.level) { resetCycle(true); computeEvents(); renderTimeline(); renderHUD(); G.running = true; G.won = false; } }
 

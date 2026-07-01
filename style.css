@@ -61,6 +61,15 @@ html, body {
 
 #erase-count { color: var(--time); letter-spacing: 1px; }
 
+.hud-icon {
+  font-family: inherit; font-size: 22px; line-height: 1;
+  width: 38px; height: 38px; margin-left: auto;
+  background: rgba(120,140,255,0.05); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+}
+.hud-icon:active { background: rgba(127,240,255,0.14); }
+.hud-block.cycle { margin-left: 10px; }
+
 #cycle-ring circle { fill: none; stroke-width: 3; }
 .ring-bg { stroke: var(--line); }
 .ring-fg {
@@ -181,6 +190,30 @@ html, body {
   box-shadow: 0 0 26px rgba(127,240,255,0.5);
 }
 .wide:active { transform: translateY(1px); }
+.wide.ghost { background: none; color: var(--echo); border: 1px solid var(--echo); box-shadow: none; }
+
+.panel-wide { max-width: 440px; width: 92vw; }
+.level-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: 6px 0 22px;
+  max-height: 56vh;
+  overflow-y: auto;
+}
+.lvl {
+  aspect-ratio: 1 / 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: rgba(120,140,255,0.05); color: var(--ink);
+  font-family: inherit; cursor: pointer; padding: 2px;
+}
+.lvl:active { background: rgba(127,240,255,0.14); }
+.lvl .num { font-size: 22px; }
+.lvl .nm { font-size: 9px; letter-spacing: .5px; color: var(--dim); line-height: 1; text-align: center; }
+.lvl.done { border-color: var(--echo); }
+.lvl.done .num { color: var(--echo); }
+.lvl.current { outline: 2px solid var(--gold); outline-offset: 1px; }
 
 /* ===== Timeline ===== */
 #timeline-wrap { flex: 0 0 auto; padding: 4px 6px 6px; }

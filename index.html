@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
   <title>EchoWeave</title>
-  <link rel="stylesheet" href="style.css?v=8" />
+  <link rel="stylesheet" href="style.css?v=9" />
 </head>
 <body>
   <div id="app">
@@ -25,6 +25,7 @@
         <span class="tiny">WISSEN</span>
         <span id="erase-count">0/2</span>
       </div>
+      <button id="btn-levels" class="hud-icon" title="Kies level">&#9776;</button>
       <div class="hud-block cycle">
         <svg id="cycle-ring" viewBox="0 0 36 36" width="34" height="34">
           <circle class="ring-bg" cx="18" cy="18" r="15.5"></circle>
@@ -54,6 +55,15 @@
           <button id="ov-btn" class="wide">START</button>
         </div>
       </div>
+
+      <!-- Level select -->
+      <div id="levelselect" class="overlay hidden">
+        <div class="panel panel-wide">
+          <h1>LEVELS</h1>
+          <div id="level-grid" class="level-grid"></div>
+          <button id="ls-close" class="wide ghost">SLUITEN</button>
+        </div>
+      </div>
     </main>
 
     <!-- Timeline of events -->
@@ -71,6 +81,6 @@
       <button data-act="cancel">Annuleren</button>
     </div>
   </div>
-  <script src="game.js?v=8"></script>
+  <script src="game.js?v=9"></script>
 </body>
 </html>
