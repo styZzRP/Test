@@ -346,6 +346,66 @@
       },
       lasers: {},
     },
+
+    /* ---- Reverse puzzle ---- */
+    {
+      name: 'De open uitgang',
+      hint: 'Omgekeerd: het openen van de deur zet juist de laser AAN en verspert je ' +
+            'uitgang. Zoek uit welke gebeurtenis je moet WISSEN zodat de deur dicht ' +
+            'blijft — en ontsnap dan alsnog.',
+      rows: [
+        '###########',
+        '#P..A....a#',
+        '#~~~~~~~~~#',
+        '#.........#',
+        '#....G....#',
+        '###########',
+      ],
+      plates: { A: { kind: 'latch' } },
+      doors: { a: { controllers: [{ plate: 'A' }] } },
+      lasers: { L: { controllers: [{ door: 'a' }] } },  // laser on while the door is open
+    },
+
+    /* ---- Ghost room ---- */
+    {
+      name: 'Spookkamer',
+      hint: 'Je eigen personage is ONZICHTBAAR — je ziet alleen je echo. Onthoud waar ' +
+            'je bent. Laat je echo de plaat bezet houden en loop op de tast naar het ' +
+            'kristal.',
+      rows: [
+        '###########',
+        '#P........#',
+        '#.........#',
+        '#...A.....#',
+        '#####a#####',
+        '#....G....#',
+        '#.........#',
+        '###########',
+      ],
+      plates: { A: { kind: 'pressure' } },
+      doors: { a: { controllers: [{ plate: 'A' }] } },
+      lasers: {},
+      ghost: true,
+    },
+
+    /* ---- Emotion events ---- */
+    {
+      name: 'Bang in het donker',
+      hint: 'Deze deur reageert niet op je positie maar op je EMOTIE: hij opent zolang ' +
+            'iemand bang is — dat wil zeggen, dicht bij het angstveld (◈) staat. Laat je ' +
+            'echo bang zijn en loop zelf door. (Wis het angst-moment om hem te sluiten.)',
+      rows: [
+        '###########',
+        '#P........#',
+        '#...A.....#',
+        '#####a#####',
+        '#....G....#',
+        '###########',
+      ],
+      plates: { A: { kind: 'aura' } },
+      doors: { a: { controllers: [{ plate: 'A' }] } },
+      lasers: {},
+    },
   ];
 
   /* ---------------------------------------------------------------------
@@ -416,6 +476,7 @@
       echoType: def.echoType || 'normal',   // 'normal' | 'shadow'
       fadeCycles: def.fadeCycles || 0,       // >0 => fragile memories
       allowMove: !!def.allowMove,            // enable "Verschuif" in the timeline menu
+      ghost: !!def.ghost,                    // hide the live player (predict where you are)
     };
   }
 
@@ -476,14 +537,20 @@
   const isBlocked = (actorId, plateId) =>
     G.suppressed.has(key(actorId, plateId)) || G.forgotten.has(key(actorId, plateId));
 
+  // Does an actor trigger a plate? Normal plates need you on the cell; an
+  // 'aura' plate (an emotion field) triggers from any adjacent cell too.
+  function actorTriggers(p, pl) {
+    if (pl.kind === 'aura') return Math.max(Math.abs(p.x - pl.x), Math.abs(p.y - pl.y)) <= 1;
+    return p.x === pl.x && p.y === pl.y;
+  }
+
   // Which actors (by id) currently occupy each plate, ignoring blocked echoes.
   function computeOccupancy(positions) {
     const occ = {};
     for (const id in G.level.plates) occ[id] = new Set();
     for (const p of positions) {
       for (const id in G.level.plates) {
-        const pl = G.level.plates[id];
-        if (p.x === pl.x && p.y === pl.y) {
+        if (actorTriggers(p, G.level.plates[id])) {
           if (p.actorId !== 'live' && isBlocked(p.actorId, id)) continue;
           occ[id].add(p.actorId);
         }
@@ -669,7 +736,7 @@
       for (const p of positions) {
         for (const id in G.level.plates) {
           const pl = G.level.plates[id];
-          const on = (p.x === pl.x && p.y === pl.y);
+          const on = actorTriggers(p, pl);
           const k = p.actorId + id;
           // events the Forgetter ate vanish from the timeline entirely
           if (on && !onPlate[k] && !G.forgotten.has(key(p.actorId, id))) {
@@ -740,6 +807,10 @@
 
     stepTick(POS, dirs, G.world);
 
+    // glassy footstep when you actually move
+    const plp = posOf('live');
+    if (plp && (plp.x !== plp.prevX || plp.y !== plp.prevY)) Sound.step();
+
     // Time anchors witness the live timeline and remember forever — even
     // after the causing event is later erased. This is the paradox engine.
     for (const id in G.level.anchors) {
@@ -808,6 +879,7 @@
         id: 'echo' + (G.cycleCount), track, spawn,
         offset: 0, bornCycle: G.cycleCount, shadow,
       });
+      Sound.weave(G.echoes.length);   // each echo adds a note to the melody
     } else {
       flashTitle('Max echoes bereikt — herstart (↺)');
     }
@@ -898,29 +970,45 @@
      SOUND — sparse glassy ticks & synths
   --------------------------------------------------------------------- */
   const Sound = (() => {
-    let ctx = null, master = null, on = true;
+    let ctx = null, master = null, on = true, lastStep = 0;
+    const PENTA = [0, 2, 4, 7, 9];                 // major pentatonic
+    const semis = (root, n) => root * Math.pow(2, n / 12);
     function init() {
       if (ctx) return;
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       ctx = new AC(); master = ctx.createGain();
-      master.gain.value = 0.3; master.connect(ctx.destination);
+      master.gain.value = 0.28; master.connect(ctx.destination);
     }
-    function tone(f, dur, type = 'sine', vol = 0.5, slide = null) {
+    // soft tone with a gentle attack/release so nothing clicks
+    function tone(f, dur, type = 'sine', vol = 0.4, slide = null, delay = 0) {
       if (!on || !ctx) return;
+      const t = ctx.currentTime + delay;
       const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = type; o.frequency.setValueAtTime(f, ctx.currentTime);
-      if (slide) o.frequency.exponentialRampToValueAtTime(slide, ctx.currentTime + dur);
-      g.gain.setValueAtTime(vol, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
-      o.connect(g); g.connect(master); o.start(); o.stop(ctx.currentTime + dur);
+      o.type = type; o.frequency.setValueAtTime(f, t);
+      if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.06, dur * 0.25));
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.05);
     }
     return {
       init,
-      tick() { tone(880 + Math.random() * 40, 0.05, 'sine', 0.08); },
-      weave() { tone(300, 0.4, 'sine', 0.3, 600); },
-      erase() { tone(520, 0.5, 'triangle', 0.35, 180); tone(1040, 0.4, 'sine', 0.15); },
-      win() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.5, 'sine', 0.3), i * 130)); },
+      isOn: () => on,
+      toggle() { on = !on; return on; },
+      // glassy footstep, throttled so it stays sparse
+      step() { const now = performance.now(); if (now - lastStep < 90) return; lastStep = now; tone(1250 + Math.random() * 250, 0.05, 'sine', 0.05); },
+      // weaving builds a little pentatonic melody as your echoes stack up
+      weave(n) { const f = semis(220, PENTA[(n || 1) % 5] + 12); tone(f, 0.6, 'triangle', 0.16); tone(f * 2, 0.5, 'sine', 0.05); },
+      // reverse-piano sweep on an edit
+      erase() { tone(620, 0.6, 'sine', 0.18, 150); tone(930, 0.5, 'sine', 0.07, 260); },
+      life() { tone(200, 0.3, 'sawtooth', 0.15, 90); },
+      // solving the room: music emerges, slow and warm
+      win() {
+        const root = 261.63, chord = [0, 4, 7, 12, 16, 19];
+        chord.forEach((s, i) => tone(semis(root, s), 1.8, 'triangle', 0.14, null, i * 0.2));
+        tone(root / 2, 2.4, 'sine', 0.12);
+      },
     };
   })();
 
@@ -983,6 +1071,8 @@
       const pl = L.plates[id];
       if (pl.kind === 'mirror') {
         drawMirror(ox + (pl.x + 0.5) * cell, oy + (pl.y + 0.5) * cell, cell, mirrorOrient(id, G.world));
+      } else if (pl.kind === 'aura') {
+        drawAura(ox + (pl.x + 0.5) * cell, oy + (pl.y + 0.5) * cell, cell, G.world.occ[id].size > 0);
       } else {
         const active = pl.kind === 'latch' ? G.world.latched[id] : G.world.occ[id].size > 0;
         drawPlate(ox + pl.x * cell, oy + pl.y * cell, cell, pl.color, active, pl.kind === 'latch');
@@ -1024,10 +1114,16 @@
       drawActor(rx, ry, cell, echo && echo.shadow ? 'shadow' : 'echo');
     }
     const lp = posOf('live');
-    if (lp) {
+    if (lp && !L.ghost) {            // ghost rooms hide your own body
       const rx = ox + (lerp(lp.prevX, lp.x, alpha) + 0.5) * cell;
       const ry = oy + (lerp(lp.prevY, lp.y, alpha) + 0.5) * cell;
       drawActor(rx, ry, cell, 'live');
+    } else if (lp && L.ghost) {
+      // faint ripple hint where you are (still hard to read)
+      const rx = ox + (lerp(lp.prevX, lp.x, alpha) + 0.5) * cell;
+      const ry = oy + (lerp(lp.prevY, lp.y, alpha) + 0.5) * cell;
+      ctx.save(); ctx.globalAlpha = 0.12; ctx.strokeStyle = '#eaf0ff'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(rx, ry, cell * 0.22, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
     }
 
     // the Forgetter
@@ -1135,6 +1231,23 @@
     if (orient === '/') { ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r); }
     else { ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r); }
     ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawAura(cx, cy, cell, active) {
+    const t = performance.now() / 1000;
+    ctx.save();
+    ctx.translate(cx, cy);
+    // an unsettling field: concentric dashed rings that pulse when felt
+    ctx.strokeStyle = active ? '#ff7a9c' : '#7a3050';
+    ctx.shadowBlur = active ? 18 : 6; ctx.shadowColor = '#ff7a9c';
+    ctx.setLineDash([3, 4]); ctx.lineWidth = 2;
+    for (let k = 1; k <= 3; k++) {
+      const r = cell * (0.18 + k * 0.22) + (active ? Math.sin(t * 3 + k) * 2 : 0);
+      ctx.globalAlpha = active ? 0.8 - k * 0.18 : 0.4 - k * 0.1;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.setLineDash([]);
     ctx.restore();
   }
 
@@ -1461,7 +1574,6 @@
       while (G.acc >= TICK_DT) {
         G.acc -= TICK_DT;
         doTick();
-        Sound.tick();
         if (!G.running) break;
       }
     }
