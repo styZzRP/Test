@@ -266,6 +266,59 @@
       doors: { a: { controllers: [{ plate: 'A' }] } },
       lasers: {},
     },
+
+    /* ---- Advanced: combining mechanics ---- */
+    {
+      name: 'Dubbele grendel',
+      hint: 'Deze deur opent alleen als BEIDE platen tegelijk bezet zijn. Eén echo ' +
+            'kan er maar één bezet houden — je hebt dus twee verledens nodig voordat ' +
+            'je zelf naar het kristal loopt.',
+      rows: [
+        '###########',
+        '#P........#',
+        '#.A.....B.#',
+        '#####a#####',
+        '#....G....#',
+        '###########',
+      ],
+      plates: { A: { kind: 'pressure' }, B: { kind: 'pressure' } },
+      doors: { a: { all: true, controllers: [{ plate: 'A' }, { plate: 'B' }] } },
+      lasers: {},
+    },
+    {
+      name: 'Drie echo\'s',
+      hint: 'Drie platen, allemaal tegelijk bezet. Bouw drie echo\'s op — kijk hoe de ' +
+            'stippen bovenaan vollopen — en glip er dan als vierde zelf doorheen.',
+      rows: [
+        '#############',
+        '#P..........#',
+        '#.A..B..C...#',
+        '######a######',
+        '#.....G.....#',
+        '#############',
+      ],
+      plates: { A: { kind: 'pressure' }, B: { kind: 'pressure' }, C: { kind: 'pressure' } },
+      doors: { a: { all: true, controllers: [{ plate: 'A' }, { plate: 'B' }, { plate: 'C' }] } },
+      lasers: {},
+    },
+    {
+      name: 'Verre grendels',
+      hint: 'Twee kamers, één slot: de deur rechts opent alleen als BEIDE knoppen bezet ' +
+            'zijn — de ene links, de andere rechts. Laat een echo links vasthouden, ' +
+            'een echo rechts (via het portaal), en ga dan zelf.',
+      rows: [
+        '#############',
+        '#P..A.#..G..#',
+        '#.....#.....#',
+        '#.....#.a.B.#',
+        '#.....#.....#',
+        '#..p..#.q...#',
+        '#############',
+      ],
+      plates: { A: { kind: 'pressure' }, B: { kind: 'pressure' } },
+      doors: { a: { all: true, controllers: [{ plate: 'A' }, { plate: 'B' }] } },
+      lasers: {},
+    },
   ];
 
   /* ---------------------------------------------------------------------
@@ -439,11 +492,11 @@
     };
     for (const id in G.level.doors) {
       const d = G.level.doors[id];
-      let open = false;
-      for (const c of (d.controllers || [])) {
-        if (c.close) continue;
-        if (active(c) !== !!c.invert) open = true;
-      }
+      const openers = (d.controllers || []).filter(c => !c.close);
+      // 'all' doors need every opener active (AND); otherwise any one (OR)
+      let open = d.all
+        ? (openers.length > 0 && openers.every(c => active(c) !== !!c.invert))
+        : openers.some(c => active(c) !== !!c.invert);
       for (const c of (d.controllers || [])) {
         if (c.close && active(c)) open = false;
       }
