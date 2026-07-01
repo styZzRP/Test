@@ -22,17 +22,42 @@
      the first to the last waypoint. Everything off-road is a buildable lot
      (a city block) where you can deploy a gang.
   --------------------------------------------------------------------- */
-  const WAYPOINTS = [
-    { c: -1, r: 1 }, { c: 13, r: 1 }, { c: 13, r: 4 }, { c: 2, r: 4 },
-    { c: 2, r: 7 }, { c: 13, r: 7 }, { c: 13, r: 10 }, { c: 2, r: 10 },
-    { c: 2, r: 13 }, { c: 14, r: 13 }, { c: 14, r: 16 }
+  const MAPS = [
+    {
+      name: 'DOWNTOWN',
+      waypoints: [
+        { c: -1, r: 1 }, { c: 13, r: 1 }, { c: 13, r: 4 }, { c: 2, r: 4 },
+        { c: 2, r: 7 }, { c: 13, r: 7 }, { c: 13, r: 10 }, { c: 2, r: 10 },
+        { c: 2, r: 13 }, { c: 14, r: 13 }, { c: 14, r: 16 }
+      ]
+    },
+    {
+      name: 'THE DOCKS',
+      waypoints: [
+        { c: 1, r: -1 }, { c: 1, r: 12 }, { c: 5, r: 12 }, { c: 5, r: 3 },
+        { c: 10, r: 3 }, { c: 10, r: 14 }, { c: 14, r: 14 }, { c: 14, r: 5 },
+        { c: 16, r: 5 }
+      ]
+    },
+    {
+      name: 'THE HILLS',
+      waypoints: [
+        { c: -1, r: 2 }, { c: 6, r: 2 }, { c: 6, r: 6 }, { c: 11, r: 6 },
+        { c: 11, r: 2 }, { c: 14, r: 2 }, { c: 14, r: 13 }, { c: 8, r: 13 },
+        { c: 8, r: 9 }, { c: 3, r: 9 }, { c: 3, r: 16 }
+      ]
+    }
   ];
 
-  // Mark which tiles are road so we can render blocks and block building.
-  const roadSet = new Set();
-  function markRoad() {
-    for (let i = 0; i < WAYPOINTS.length - 1; i++) {
-      let a = WAYPOINTS[i], b = WAYPOINTS[i + 1];
+  // Mutable current-map data, rebuilt by loadMap().
+  let roadSet = new Set();
+  let path = [];
+
+  function loadMap(index) {
+    const wps = MAPS[index].waypoints;
+    roadSet = new Set();
+    for (let i = 0; i < wps.length - 1; i++) {
+      let a = wps[i], b = wps[i + 1];
       const cc = Math.sign(b.c - a.c), cr = Math.sign(b.r - a.r);
       let c = a.c, r = a.r;
       roadSet.add(c + ',' + r);
@@ -41,15 +66,11 @@
         roadSet.add(c + ',' + r);
       }
     }
+    path = wps.map(w => ({ x: w.c * TILE + TILE / 2, y: w.r * TILE + TILE / 2 }));
   }
-  markRoad();
-  const isRoad = (c, r) => roadSet.has(c + ',' + r);
+  loadMap(0);
 
-  // Pixel-space path (tile centres) for car movement.
-  const path = WAYPOINTS.map(w => ({
-    x: w.c * TILE + TILE / 2,
-    y: w.r * TILE + TILE / 2
-  }));
+  const isRoad = (c, r) => roadSet.has(c + ',' + r);
 
   /* ---------------------------------------------------------------------
      TOWER ("GANG") TYPES
@@ -86,6 +107,12 @@
       cost: 210, range: 150, dmg: 20, rate: 1.35, bullet: 6,
       color: '#7a5cff', muzzle: '#d7ccff',
       effect: { type: 'splash', radius: 52 }
+    },
+    russians: {
+      name: 'Russians', desc: 'Cars blow up — chain reaction.',
+      cost: 260, range: 120, dmg: 30, rate: 1.1, bullet: 6,
+      color: '#ff4d4d', muzzle: '#ffc2c2',
+      effect: { type: 'chain', radius: 62, dmg: 26 }
     }
   };
 
@@ -98,6 +125,8 @@
     let effect = b.effect;
     if (effect && effect.type === 'splash') {
       effect = { type: 'splash', radius: effect.radius * (1 + 0.12 * m) };
+    } else if (effect && effect.type === 'chain') {
+      effect = { type: 'chain', radius: effect.radius * (1 + 0.1 * m), dmg: effect.dmg * Math.pow(1.55, m) };
     }
     return {
       name: b.name,
@@ -126,6 +155,7 @@
     enemies: [],
     bullets: [],
     particles: [],
+    blasts: [],            // expanding explosion rings
     selectedType: null,
     selectedTower: null,
     hoverTile: null,
@@ -133,6 +163,8 @@
     waveActive: false,
     running: false,
     over: false,
+    speed: 1,              // fast-forward multiplier (1 / 2 / 3)
+    mapIndex: 0,
   };
 
   /* ---------------------------------------------------------------------
@@ -189,6 +221,8 @@
     wave: document.getElementById('wave'),
     score: document.getElementById('score'),
     mute: document.getElementById('mute'),
+    speed: document.getElementById('speed'),
+    mapbtn: document.getElementById('mapbtn'),
     towerList: document.getElementById('tower-list'),
     startBtn: document.getElementById('start-wave'),
     hint: document.getElementById('hint'),
@@ -552,6 +586,13 @@
     }
     state.particles = state.particles.filter(p => p.life > 0);
 
+    // explosion rings
+    for (const bl of state.blasts) {
+      bl.r += (bl.max - bl.r) * Math.min(1, dt * 12);
+      bl.life -= dt;
+    }
+    state.blasts = state.blasts.filter(bl => bl.life > 0);
+
     // wave finished? (all spawners drained and the road is clear)
     if (state.waveActive && !state.spawners.length && !state.enemies.length) {
       state.waveActive = false;
@@ -571,25 +612,50 @@
   // Resolve a bullet arriving at its target: direct damage plus any effect.
   function impact(b) {
     const t = b.target;
+    const eff = b.effect;
     t.hp -= b.dmg;
     spawnHit(t.x, t.y, b.color);
 
-    if (b.effect && b.effect.type === 'slow') {
-      applySlow(t, b.effect);
-    }
-    if (b.effect && b.effect.type === 'splash') {
+    if (eff && eff.type === 'slow') applySlow(t, eff);
+
+    if (eff && eff.type === 'splash') {
       Sound.explosion();
+      addBlast(t.x, t.y, eff.radius, '#ff9d3a');
       for (let i = 0; i < 14; i++) spawnHit(t.x, t.y, '#ff7a18');
       for (const e of state.enemies) {
         if (e === t) continue;
         const d = Math.hypot(e.x - t.x, e.y - t.y);
-        if (d <= b.effect.radius) {
-          e.hp -= b.dmg * 0.6 * (1 - d / b.effect.radius);
+        if (d <= eff.radius) {
+          e.hp -= b.dmg * 0.6 * (1 - d / eff.radius);
           if (e.hp <= 0) killEnemy(e);
         }
       }
     }
-    if (t.hp <= 0) killEnemy(t);
+
+    if (t.hp <= 0) {
+      killEnemy(t);
+      // chain reaction: a killed car detonates and can set off its neighbours
+      if (eff && eff.type === 'chain') chainExplode(t, eff.dmg, eff.radius);
+    }
+  }
+
+  // Recursive detonation; killEnemy marks cars dead so each blows up once.
+  function chainExplode(src, dmg, radius) {
+    Sound.explosion();
+    addBlast(src.x, src.y, radius, '#ff4d4d');
+    for (let i = 0; i < 12; i++) spawnHit(src.x, src.y, '#ff5a3a');
+    for (const e of state.enemies) {
+      if (e === src || e.dead) continue;
+      const d = Math.hypot(e.x - src.x, e.y - src.y);
+      if (d <= radius) {
+        e.hp -= dmg;
+        if (e.hp <= 0 && !e.dead) { killEnemy(e); chainExplode(e, dmg, radius); }
+      }
+    }
+  }
+
+  function addBlast(x, y, radius, color) {
+    state.blasts.push({ x, y, r: radius * 0.3, max: radius, life: 0.35, color });
   }
 
   function applySlow(e, eff) {
@@ -632,6 +698,7 @@
     drawEnemies();
     drawBullets();
     drawParticles();
+    drawBlasts();
     drawHover();
   }
 
@@ -642,46 +709,106 @@
     return ((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 0x7fffffff;
   }
 
+  const BUILDING_COLORS = ['#2b2f3a', '#343a44', '#2f3942', '#3b3330', '#33402f', '#2c2c34'];
+
   function drawCity() {
-    ctx.fillStyle = '#101216';
+    // grimy ground base
+    ctx.fillStyle = '#0b0c10';
     ctx.fillRect(0, 0, W, H);
+
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         if (isRoad(c, r)) continue;
         const x = c * TILE, y = r * TILE;
-        const v = rnd(c, r);
-        // building block with a darker roof + faux height shadow
-        const shade = 26 + Math.floor(v * 26);
-        ctx.fillStyle = `rgb(${shade},${shade + 4},${shade + 10})`;
-        ctx.fillRect(x + 2, y + 2, TILE - 4, TILE - 4);
-        // roof detail
-        ctx.fillStyle = `rgba(0,0,0,0.35)`;
-        ctx.fillRect(x + 2, y + 2, TILE - 4, 4);
-        // little rooftop lights / AC units
-        if (v > 0.6) {
-          ctx.fillStyle = v > 0.85 ? '#ffd23f' : '#3a4150';
-          ctx.fillRect(x + 8 + Math.floor(v * 14), y + 12 + Math.floor(v * 12), 5, 5);
+        const v = rnd(c, r), v2 = rnd(c + 13, r + 7), v3 = rnd(c + 5, r + 29);
+
+        // pavement under every block
+        ctx.fillStyle = '#33363f';
+        ctx.fillRect(x, y, TILE, TILE);
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(x, y, TILE, 1);
+        ctx.fillRect(x, y, 1, TILE);
+
+        // some lots are parks / vacant green
+        if (v2 > 0.84) { drawPark(x, y, v, v3); continue; }
+
+        const pad = 4;
+        const bw = TILE - pad * 2, bh = TILE - pad * 2;
+
+        // fake-height drop shadow (light comes from top-left)
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(x + pad + 3, y + pad + 3, bw, bh);
+
+        // building body
+        const body = BUILDING_COLORS[Math.floor(v * BUILDING_COLORS.length) % BUILDING_COLORS.length];
+        ctx.fillStyle = body;
+        ctx.fillRect(x + pad, y + pad, bw, bh);
+        // lit top-left edges
+        ctx.fillStyle = 'rgba(255,255,255,0.07)';
+        ctx.fillRect(x + pad, y + pad, bw, 2);
+        ctx.fillRect(x + pad, y + pad, 2, bh);
+
+        // window grid — some lit
+        const gap = 3, cell = 6;
+        for (let wy = 0; wy < 3; wy++) {
+          for (let wx = 0; wx < 3; wx++) {
+            const lit = rnd(c * 7 + wx, r * 7 + wy) > 0.72;
+            ctx.fillStyle = lit ? '#ffd98a' : '#14171e';
+            ctx.fillRect(x + pad + 3 + wx * (cell + gap), y + pad + 3 + wy * (cell + gap), cell, cell);
+          }
         }
-        // edge highlight (sun side)
-        ctx.fillStyle = 'rgba(255,255,255,0.04)';
-        ctx.fillRect(x + 2, y + 2, 3, TILE - 4);
+        // rooftop unit
+        if (v3 > 0.55) {
+          ctx.fillStyle = '#20242c';
+          ctx.fillRect(x + pad + 2, y + pad + 2, 6, 6);
+        }
       }
     }
   }
 
+  function drawPark(x, y, v, v3) {
+    ctx.fillStyle = '#1c3a24';
+    ctx.fillRect(x + 3, y + 3, TILE - 6, TILE - 6);
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillRect(x + 3, y + 3, TILE - 6, 2);
+    // a couple of trees
+    const trees = v3 > 0.5 ? 3 : 2;
+    for (let i = 0; i < trees; i++) {
+      const tx = x + 8 + ((i * 11 + Math.floor(v * 9)) % (TILE - 16));
+      const ty = y + 9 + ((i * 13 + Math.floor(v3 * 11)) % (TILE - 18));
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(tx - 3, ty - 2, 8, 8);
+      ctx.fillStyle = '#2e6b38';
+      ctx.fillRect(tx - 4, ty - 4, 8, 8);
+      ctx.fillStyle = '#3e8a48';
+      ctx.fillRect(tx - 4, ty - 4, 4, 4);
+    }
+  }
+
   function drawRoads() {
-    // asphalt under the whole route
+    // asphalt + curbs
     for (const key of roadSet) {
       const [c, r] = key.split(',').map(Number);
       const x = c * TILE, y = r * TILE;
-      ctx.fillStyle = '#26282e';
+      ctx.fillStyle = '#1e2025';
       ctx.fillRect(x, y, TILE, TILE);
-      // subtle asphalt grain
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      if ((c + r) % 2 === 0) ctx.fillRect(x, y, TILE, TILE);
+      // grain
+      if ((c + r) % 2 === 0) { ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(x, y, TILE, TILE); }
+      // oil stain
+      if (rnd(c + 3, r + 11) > 0.8) {
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(x + 12, y + 14, 12, 9);
+      }
+      // curbs where a neighbour is NOT road (kerb line at the pavement edge)
+      ctx.fillStyle = '#4a4e58';
+      if (!isRoad(c, r - 1)) ctx.fillRect(x, y, TILE, 2);
+      if (!isRoad(c, r + 1)) ctx.fillRect(x, y + TILE - 2, TILE, 2);
+      if (!isRoad(c - 1, r)) ctx.fillRect(x, y, 2, TILE);
+      if (!isRoad(c + 1, r)) ctx.fillRect(x + TILE - 2, y, 2, TILE);
     }
-    // dashed yellow centre line along the waypoints
-    ctx.strokeStyle = '#ffd23f';
+
+    // dashed yellow centre line along the route
+    ctx.strokeStyle = '#e9c33a';
     ctx.lineWidth = 3;
     ctx.setLineDash([10, 12]);
     ctx.beginPath();
@@ -690,13 +817,20 @@
     ctx.stroke();
     ctx.setLineDash([]);
 
+    ctx.font = '16px VT323, monospace';
+    ctx.textAlign = 'center';
+    // START marker (spawn)
+    const first = path[0];
+    ctx.fillStyle = '#19e6ff';
+    ctx.fillText('START', clampX(first.x), clampY(first.y) + 4);
     // EXIT marker
     const last = path[path.length - 1];
     ctx.fillStyle = '#ff2e88';
-    ctx.font = '16px VT323, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('EXIT', last.x, last.y - 6);
+    ctx.fillText('EXIT', clampX(last.x), clampY(last.y) - 4);
   }
+
+  const clampX = (x) => Math.max(20, Math.min(W - 20, x));
+  const clampY = (y) => Math.max(16, Math.min(H - 8, y));
 
   function drawRange() {
     // range of a placed tower that's selected for upgrade
@@ -727,37 +861,60 @@
   function drawTowers() {
     for (const tw of state.towers) {
       const cfg = towerStats(tw);
+      const base = TOWERS[tw.type];
+
       // selection highlight
       if (tw === state.selectedTower) {
         ctx.strokeStyle = '#ffd23f';
         ctx.lineWidth = 2;
         ctx.strokeRect(tw.c * TILE + 2, tw.r * TILE + 2, TILE - 4, TILE - 4);
       }
-      // base pad
+
+      // soft gang-coloured glow
+      ctx.save();
+      ctx.globalAlpha = 0.14;
+      ctx.fillStyle = base.color;
+      ctx.beginPath(); ctx.arc(tw.x, tw.y, 17, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+
+      // concrete base pad with coloured trim
       ctx.fillStyle = '#0c0d11';
-      ctx.fillRect(tw.x - 15, tw.y - 15, 30, 30);
-      ctx.fillStyle = '#191c22';
-      ctx.fillRect(tw.x - 13, tw.y - 13, 26, 26);
-      // turret body
+      ctx.fillRect(tw.x - 14, tw.y - 14, 28, 28);
+      ctx.fillStyle = '#20242c';
+      ctx.fillRect(tw.x - 12, tw.y - 12, 24, 24);
+      ctx.fillStyle = base.color;
+      // corner bolts in gang colour
+      ctx.fillRect(tw.x - 12, tw.y - 12, 3, 3);
+      ctx.fillRect(tw.x + 9, tw.y - 12, 3, 3);
+      ctx.fillRect(tw.x - 12, tw.y + 9, 3, 3);
+      ctx.fillRect(tw.x + 9, tw.y + 9, 3, 3);
+
+      // rotating turret
       ctx.save();
       ctx.translate(tw.x, tw.y);
       ctx.rotate(tw.angle);
+      // barrel — grows with level; wide nozzle for slow, tube for splash/chain
+      const bl = 15 + (tw.level - 1) * 2;
+      ctx.fillStyle = '#0a0b0e';
+      const bw = base.effect && base.effect.type === 'slow' ? 8 : 6;
+      ctx.fillRect(3, -bw / 2, bl, bw);
+      if (base.effect && (base.effect.type === 'splash' || base.effect.type === 'chain')) {
+        ctx.fillStyle = base.color;                 // rocket tip
+        ctx.fillRect(3 + bl - 3, -bw / 2, 3, bw);
+      }
+      // dome
       ctx.fillStyle = cfg.color;
-      ctx.fillRect(-8, -8, 16, 16);
-      ctx.fillStyle = 'rgba(0,0,0,0.4)';
-      ctx.fillRect(-8, -8, 16, 4);
-      // barrel — thicker as the gang levels up
-      ctx.fillStyle = '#0c0d11';
-      const bl = 16 + (tw.level - 1) * 2;
-      ctx.fillRect(4, -3, bl, 6);
+      ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.beginPath(); ctx.arc(-2, -2, 3, 0, Math.PI * 2); ctx.fill();
       // muzzle flash
       if (tw.flash > 0) {
         ctx.fillStyle = cfg.muzzle;
-        ctx.fillRect(4 + bl, -4, 8, 8);
+        ctx.beginPath(); ctx.arc(3 + bl + 3, 0, 5, 0, Math.PI * 2); ctx.fill();
       }
       ctx.restore();
 
-      // upgrade level pips along the bottom of the pad
+      // upgrade level pips
       for (let i = 0; i < tw.level - 1; i++) {
         ctx.fillStyle = '#ffd23f';
         ctx.fillRect(tw.x - 12 + i * 6, tw.y + 10, 4, 3);
@@ -765,41 +922,91 @@
     }
   }
 
+  function shade(hex, f) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = Math.max(0, Math.min(255, ((n >> 16) & 255) * f)) | 0;
+    const g = Math.max(0, Math.min(255, ((n >> 8) & 255) * f)) | 0;
+    const b = Math.max(0, Math.min(255, (n & 255) * f)) | 0;
+    return `rgb(${r},${g},${b})`;
+  }
+
   function drawEnemies() {
     for (const e of state.enemies) {
-      const w = e.boss ? 34 : 22;
-      const h = e.boss ? 18 : 13;
+      const w = e.boss ? 36 : 22;
+      const h = e.boss ? 17 : 12;
       ctx.save();
       ctx.translate(e.x, e.y);
       ctx.rotate(e.angle);
-      // tyre shadow
-      ctx.fillStyle = 'rgba(0,0,0,0.45)';
-      ctx.fillRect(-w / 2 - 1, -h / 2 + 2, w + 2, h);
-      // body
+
+      // ground shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(-w / 2, -h / 2 + 3, w, h);
+
+      // wheels
+      ctx.fillStyle = '#0a0a0c';
+      ctx.fillRect(-w / 2 + 2, -h / 2 - 1, 5, 3);
+      ctx.fillRect(w / 2 - 7, -h / 2 - 1, 5, 3);
+      ctx.fillRect(-w / 2 + 2, h / 2 - 2, 5, 3);
+      ctx.fillRect(w / 2 - 7, h / 2 - 2, 5, 3);
+
+      // body with light/dark sides
       ctx.fillStyle = e.color;
       ctx.fillRect(-w / 2, -h / 2, w, h);
-      // roof / windscreen
-      ctx.fillStyle = 'rgba(0,0,0,0.45)';
-      ctx.fillRect(-w / 6, -h / 2 + 2, w / 2.2, h - 4);
-      // headlights
+      ctx.fillStyle = shade(e.color, 1.25);
+      ctx.fillRect(-w / 2, -h / 2, w, 2);           // sunlit top
+      ctx.fillStyle = shade(e.color, 0.6);
+      ctx.fillRect(-w / 2, h / 2 - 2, w, 2);         // shaded bottom
+
+      // cabin / windscreen (tinted glass)
+      ctx.fillStyle = '#11202b';
+      if (e.boss) {
+        ctx.fillRect(-w / 2 + 6, -h / 2 + 2, w - 14, h - 4);
+        ctx.fillStyle = '#0a1319';
+        ctx.fillRect(0, -h / 2 + 2, 2, h - 4);        // limo divider
+      } else {
+        ctx.fillRect(-2, -h / 2 + 2, w / 2.6, h - 4);
+      }
+
+      // headlights (front) + tail lights (rear)
       ctx.fillStyle = '#fff7c0';
       ctx.fillRect(w / 2 - 2, -h / 2 + 1, 2, 3);
       ctx.fillRect(w / 2 - 2, h / 2 - 4, 2, 3);
+      ctx.fillStyle = '#ff3b3b';
+      ctx.fillRect(-w / 2, -h / 2 + 1, 1.5, 3);
+      ctx.fillRect(-w / 2, h / 2 - 4, 1.5, 3);
+
+      // frost overlay when slowed
+      if (e.slowTimer > 0) {
+        ctx.fillStyle = 'rgba(120,200,255,0.35)';
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+      }
       ctx.restore();
 
       // health bar
       const hpw = w;
       ctx.fillStyle = '#000';
-      ctx.fillRect(e.x - hpw / 2, e.y - h / 2 - 7, hpw, 4);
+      ctx.fillRect(e.x - hpw / 2, e.y - h / 2 - 8, hpw, 4);
       ctx.fillStyle = e.hp / e.maxHp > 0.4 ? '#51ff5b' : '#ff2e88';
-      ctx.fillRect(e.x - hpw / 2, e.y - h / 2 - 7, hpw * (e.hp / e.maxHp), 4);
+      ctx.fillRect(e.x - hpw / 2, e.y - h / 2 - 8, hpw * Math.max(0, e.hp / e.maxHp), 4);
     }
   }
 
   function drawBullets() {
     for (const b of state.bullets) {
+      const rocket = b.effect && (b.effect.type === 'splash' || b.effect.type === 'chain');
+      if (rocket) {
+        // rocket with a little flame tail
+        ctx.fillStyle = '#ffb648';
+        ctx.fillRect(b.x - 3, b.y - 2, 3, 4);
+      }
       ctx.fillStyle = b.color;
-      ctx.fillRect(b.x - b.r / 2, b.y - b.r / 2, b.r, b.r);
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r / 1.6 + 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, Math.max(1, b.r / 4), 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -808,6 +1015,20 @@
       ctx.globalAlpha = Math.max(0, p.life * 2);
       ctx.fillStyle = p.color;
       ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawBlasts() {
+    for (const bl of state.blasts) {
+      const a = Math.max(0, bl.life / 0.35);
+      ctx.globalAlpha = a * 0.5;
+      ctx.fillStyle = bl.color;
+      ctx.beginPath(); ctx.arc(bl.x, bl.y, bl.r * 0.7, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = bl.color;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(bl.x, bl.y, bl.r, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.globalAlpha = 1;
   }
@@ -849,7 +1070,7 @@
   function resetGame() {
     state.cash = 220; state.lives = 20; state.wave = 0; state.score = 0;
     state.towers = []; state.enemies = []; state.bullets = []; state.particles = [];
-    state.spawners = []; state.selectedType = null; state.selectedTower = null;
+    state.blasts = []; state.spawners = []; state.selectedType = null; state.selectedTower = null;
     state.waveActive = false; state.over = false; state.running = true;
     updateHUD();
   }
@@ -863,7 +1084,10 @@
   function loop(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    if (state.running && !state.over) update(dt);
+    if (state.running && !state.over) {
+      // fast-forward runs the sim in extra sub-steps for stability
+      for (let i = 0; i < state.speed; i++) update(dt);
+    }
     render();
     requestAnimationFrame(loop);
   }
@@ -879,11 +1103,26 @@
     el.mute.classList.toggle('off', !on);
   });
 
+  // Fast-forward: cycle 1x -> 2x -> 3x
+  el.speed.addEventListener('click', () => {
+    state.speed = state.speed >= 3 ? 1 : state.speed + 1;
+    el.speed.innerHTML = `&#9654; ${state.speed}x`;
+  });
+
+  // Switch map (resets the board onto the next city)
+  el.mapbtn.addEventListener('click', () => {
+    if (state.waveActive) { flashHint('Clear the wave before switching maps.'); return; }
+    state.mapIndex = (state.mapIndex + 1) % MAPS.length;
+    loadMap(state.mapIndex);
+    resetGame();
+    flashHint(`Map: ${MAPS[state.mapIndex].name}`);
+  });
+
   buildShop();
   updateHUD();
   showOverlay(
     'WASTED CITY',
-    'Top-down gang warfare. Between waves, deploy crews on the lots and tap a placed crew to UPGRADE it. Krishnas slow cars, Scientists hit with splash. Stop the traffic before the EXIT — or SEND waves in early for cash, but they arrive all at once.',
+    'Top-down gang warfare across 3 cities. Build & upgrade crews between waves — Krishnas slow cars, Scientists splash, Russians chain-explode them. Use the ▶ button to fast-forward and MAP ▸ to switch city. Stop the traffic before the EXIT!',
     'HIT THE STREETS',
     () => { Sound.init(); state.running = true; }   // first gesture unlocks audio
   );
