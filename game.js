@@ -138,6 +138,72 @@
       lasers: {},
       seeds: { S: { thresholds: [1, 2, 3], target: 3 } }, // needs 3 events to bridge
     },
+
+    /* ---- Fragile memories ---- */
+    {
+      name: 'Vervagende echo\'s',
+      hint: 'Deze herinneringen VERVAGEN na 3 cycli — zie het cijfer op de chip. ' +
+            'Laat je echo de plaat bezet houden en bereik het kristal vóór je echo ' +
+            'oplost in licht.',
+      rows: [
+        '###########',
+        '#P........#',
+        '#.........#',
+        '#...A.....#',
+        '#####a#####',
+        '#....G....#',
+        '#.........#',
+        '###########',
+      ],
+      plates: { A: { kind: 'pressure' } },
+      doors: { a: { controllers: [{ plate: 'A' }] } },
+      lasers: {},
+      fadeCycles: 3,
+    },
+
+    /* ---- Shadow echoes ---- */
+    {
+      name: 'Je spiegelbeeld',
+      hint: 'Je echo is je SCHADUW: het puntspiegelbeeld van jou — het loopt waar jij ' +
+            'níet liep. Ga naar de tegenoverliggende hoek zodat je schaduw de plaat ' +
+            'bezet houdt, en loop dan naar het kristal.',
+      rows: [
+        '###########',
+        '#P........#',
+        '#.........#',
+        '#####a#####',
+        '#.........#',
+        '#.........#',
+        '#.......A.#',
+        '#....G....#',
+        '###########',
+      ],
+      plates: { A: { kind: 'pressure' } },
+      doors: { a: { controllers: [{ plate: 'A' }] } },
+      lasers: {},
+      echoType: 'shadow',
+    },
+
+    /* ---- Move-event ---- */
+    {
+      name: 'Op het juiste moment',
+      hint: 'Nieuw: VERSCHUIF een gebeurtenis in de tijd (tik op een chip → Verschuif). ' +
+            'Je echo houdt de deur open; verschuif zijn timing als het net niet uitkomt.',
+      rows: [
+        '###########',
+        '#P........#',
+        '#.........#',
+        '#...A.....#',
+        '#####a#####',
+        '#....G....#',
+        '#.........#',
+        '###########',
+      ],
+      plates: { A: { kind: 'pressure' } },
+      doors: { a: { controllers: [{ plate: 'A' }] } },
+      lasers: {},
+      allowMove: true,
+    },
   ];
 
   /* ---------------------------------------------------------------------
@@ -190,13 +256,28 @@
       seeds[id] = { id, ...def.seeds[id], ...seedCells[i] };
     });
 
-    return { name: def.name, hint: def.hint, W, H, walls, spawn, goal, plates, doors, lasers, anchors, seeds };
+    return {
+      name: def.name, hint: def.hint, W, H, walls, spawn, goal, plates, doors, lasers, anchors, seeds,
+      echoType: def.echoType || 'normal',   // 'normal' | 'shadow'
+      fadeCycles: def.fadeCycles || 0,       // >0 => fragile memories
+      allowMove: !!def.allowMove,            // enable "Verschuif" in the timeline menu
+    };
   }
 
   /* ---------------------------------------------------------------------
      GAME STATE
   --------------------------------------------------------------------- */
   const DIRS = [ {x:0,y:0}, {x:0,y:-1}, {x:0,y:1}, {x:-1,y:0}, {x:1,y:0} ]; // 0 wait,U,D,L,R
+  const INV = [0, 2, 1, 4, 3];   // invert a direction (point reflection): U<->D, L<->R
+  const MOVE_STEP = 8;           // "shift event" granularity: 8 ticks = 1s
+  const MOVE_MAX = 32;           // up to 3s of delay, then wraps to 0
+
+  // An echo's direction at tick t, honouring its time offset (move-event).
+  function echoDir(e, t) {
+    const i = t - (e.offset || 0);
+    if (i < 0 || i >= CYCLE_TICKS) return 0;
+    return e.track[i] || 0;
+  }
 
   const G = {
     levelIndex: 0,
@@ -213,6 +294,7 @@
     selectedEvent: null,
     input: 0,            // current sampled direction
     world: null,         // live world object states
+    cycleCount: 0,       // cycles woven so far (for fragile memories)
   };
 
   /* ---------------------------------------------------------------------
@@ -357,7 +439,7 @@
 
     for (let t = 0; t < CYCLE_TICKS; t++) {
       const dirs = {};
-      for (const e of G.echoes) dirs[e.id] = e.track[t] || 0;
+      for (const e of G.echoes) dirs[e.id] = echoDir(e, t);
       stepTick(positions, dirs, world);
       for (const p of positions) {
         for (const id in G.level.plates) {
@@ -397,6 +479,7 @@
     if (fullReset) {
       G.echoes = [];
       G.suppressed = new Set();
+      G.cycleCount = 0;
       // a full reset wipes time-anchor memory; erasing (partial) keeps it.
       for (const id in G.level.anchors) G.level.anchors[id].remembered = false;
     }
@@ -421,7 +504,7 @@
 
   function doTick() {
     const dirs = {};
-    for (const e of G.echoes) dirs[e.id] = e.track[G.tick] || 0;
+    for (const e of G.echoes) dirs[e.id] = echoDir(e, G.tick);
     dirs['live'] = G.input;
     G.live.track[G.tick] = G.input;
 
@@ -446,11 +529,29 @@
   function endCycle() {
     // finalise the live recording into an echo (pad track to full length)
     for (let t = 0; t < CYCLE_TICKS; t++) if (G.live.track[t] == null) G.live.track[t] = 0;
+    G.cycleCount++;
+
     if (G.echoes.length < MAX_ECHOES) {
-      G.echoes.push({ id: 'echo' + (G.echoes.length + 1), track: G.live.track.slice(), spawn: G.level.spawn });
+      const shadow = G.level.echoType === 'shadow';
+      let spawn = G.level.spawn, track = G.live.track.slice();
+      if (shadow) {
+        // Shadow-Echo: the point-reflection of you — walks where you did NOT.
+        spawn = { x: G.level.W - 1 - spawn.x, y: G.level.H - 1 - spawn.y };
+        track = track.map(d => INV[d]);
+      }
+      G.echoes.push({
+        id: 'echo' + (G.cycleCount), track, spawn,
+        offset: 0, bornCycle: G.cycleCount, shadow,
+      });
     } else {
       flashTitle('Max echoes bereikt — herstart (↺)');
     }
+
+    // Fragile memories: echoes older than fadeCycles dissolve into light.
+    if (G.level.fadeCycles) {
+      G.echoes = G.echoes.filter(e => (G.cycleCount - e.bornCycle) < G.level.fadeCycles);
+    }
+
     resetCycle(false);
     computeEvents();
     renderTimeline();
@@ -615,25 +716,34 @@
       if (p.actorId === 'live') continue;
       const rx = ox + (lerp(p.prevX, p.x, alpha) + 0.5) * cell;
       const ry = oy + (lerp(p.prevY, p.y, alpha) + 0.5) * cell;
-      drawActor(rx, ry, cell, true);
+      const echo = G.echoes.find(e => e.id === p.actorId);
+      drawActor(rx, ry, cell, echo && echo.shadow ? 'shadow' : 'echo');
     }
     const lp = posOf('live');
     if (lp) {
       const rx = ox + (lerp(lp.prevX, lp.x, alpha) + 0.5) * cell;
       const ry = oy + (lerp(lp.prevY, lp.y, alpha) + 0.5) * cell;
-      drawActor(rx, ry, cell, false);
+      drawActor(rx, ry, cell, 'live');
     }
 
     ctx.restore();
   }
 
-  function drawActor(x, y, cell, isEcho) {
+  function drawActor(x, y, cell, kind) {
     const r = cell * 0.3;
     ctx.save();
-    ctx.shadowBlur = 18; ctx.shadowColor = isEcho ? '#7ff0ff' : '#eaf0ff';
-    ctx.globalAlpha = isEcho ? 0.55 : 1;
-    ctx.fillStyle = isEcho ? 'rgba(127,240,255,0.5)' : '#eaf0ff';
-    roundRect(x - r, y - r, r * 2, r * 2, r * 0.5); ctx.fill();
+    if (kind === 'shadow') {
+      // negative self: a hollow violet outline
+      ctx.shadowBlur = 16; ctx.shadowColor = '#c08bff';
+      ctx.strokeStyle = '#c08bff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.85;
+      roundRect(x - r, y - r, r * 2, r * 2, r * 0.5); ctx.stroke();
+    } else {
+      const isEcho = kind === 'echo';
+      ctx.shadowBlur = 18; ctx.shadowColor = isEcho ? '#7ff0ff' : '#eaf0ff';
+      ctx.globalAlpha = isEcho ? 0.55 : 1;
+      ctx.fillStyle = isEcho ? 'rgba(127,240,255,0.5)' : '#eaf0ff';
+      roundRect(x - r, y - r, r * 2, r * 2, r * 0.5); ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -776,12 +886,22 @@
     el.timeline.innerHTML = '';
     for (const ev of G.events) {
       const suppressed = G.suppressed.has(key(ev.actorId, ev.plateId));
+      const echo = G.echoes.find(e => e.id === ev.actorId);
       const div = document.createElement('div');
       div.className = 'ev' + (suppressed ? ' erased' : '') + (ev.anchored ? ' anchored' : '') +
-        (G.selectedEvent === ev.id ? ' sel' : '');
-      div.style.color = ev.color;
-      div.innerHTML = `<span class="glyph">${PLATE_GLYPH[ev.plateId] || '◇'}</span>` +
-        `<span class="mark">${suppressed ? 'gewist' : ev.actorId.replace('echo', 'E')}</span>`;
+        (echo && echo.shadow ? ' shadow' : '') + (G.selectedEvent === ev.id ? ' sel' : '');
+      div.style.color = echo && echo.shadow ? '#c08bff' : ev.color;
+
+      let mark = suppressed ? 'gewist' : ev.actorId.replace('echo', 'E');
+      if (echo && echo.offset) mark += ' +' + (echo.offset / TICK_RATE).toFixed(0) + 's';
+      // fragile memory: cycles left before this echo fades
+      let badge = '';
+      if (G.level.fadeCycles && echo) {
+        const left = G.level.fadeCycles - (G.cycleCount - echo.bornCycle);
+        badge = `<span class="fade">${left}</span>`;
+      }
+      div.innerHTML = `<span class="glyph">${PLATE_GLYPH[ev.plateId] || '◇'}${badge}</span>` +
+        `<span class="mark">${mark}</span>`;
       div.addEventListener('click', (e) => openEventMenu(ev, div, e));
       el.timeline.appendChild(div);
     }
@@ -799,6 +919,11 @@
     el.menu.classList.remove('hidden');
     const suppressed = G.suppressed.has(key(ev.actorId, ev.plateId));
     el.menu.querySelector('[data-act="erase"]').textContent = suppressed ? 'Herstel' : 'Wissen';
+    // "Verschuif" only where the level enables moving events
+    const moveBtn = el.menu.querySelector('[data-act="move"]');
+    const echo = G.echoes.find(en => en.id === ev.actorId);
+    moveBtn.style.display = G.level.allowMove ? '' : 'none';
+    moveBtn.textContent = 'Verschuif' + (echo && echo.offset ? ' (+' + (echo.offset / TICK_RATE).toFixed(0) + 's)' : '');
     el.menu.dataset.ev = ev.id;
   }
 
@@ -810,9 +935,24 @@
     G.selectedEvent = null;
     if (!ev) { renderTimeline(); return; }
     if (act === 'erase') toggleErase(ev);
+    else if (act === 'move') moveEvent(ev);
     else if (act === 'view') { G.viewPulse = { plate: ev.plateId, t: 1 }; renderTimeline(); }
     else renderTimeline();
   });
+
+  // Shift an echo's whole replay later in time (its events happen X seconds
+  // later). Rewinds the room so the new timing re-derives everything.
+  function moveEvent(ev) {
+    const echo = G.echoes.find(en => en.id === ev.actorId);
+    if (!echo) return;
+    echo.offset = ((echo.offset || 0) + MOVE_STEP) % MOVE_MAX;
+    G.breathe = 1;
+    Sound.erase();
+    resetCycle(false);
+    computeEvents();
+    renderHUD();
+    renderTimeline();
+  }
   document.addEventListener('pointerdown', (e) => {
     if (!el.menu.contains(e.target) && !e.target.closest('.ev')) el.menu.classList.add('hidden');
   });
@@ -958,6 +1098,8 @@
     seedStage: (id) => seedStage(id),
     eventCount: () => activeEventCount(),
     echoCount: () => G.echoes.length,
+    echoIds: () => G.echoes.map(e => e.id),
+    moveEcho: (id) => { const e = G.echoes.find(x => x.id === id); if (e) { e.offset = ((e.offset || 0) + MOVE_STEP) % MOVE_MAX; resetCycle(false); computeEvents(); } },
     isWon: () => G.won,
     level: () => G.levelIndex,
   };

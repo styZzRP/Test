@@ -213,6 +213,15 @@ html, body {
   font-size: 13px;
 }
 .ev .mark { font-size: 11px; color: var(--dim); letter-spacing: 1px; }
+.ev .glyph { position: relative; }
+.ev .fade {
+  position: absolute; top: -7px; right: -7px;
+  font-size: 10px; line-height: 1;
+  background: #0a1030; border: 1px solid currentColor; border-radius: 50%;
+  width: 15px; height: 15px; display: grid; place-items: center;
+  box-shadow: none;
+}
+.ev.shadow .glyph { border-style: dashed; }
 .ev.erased { opacity: .5; }
 .ev.erased .glyph { box-shadow: none; text-decoration: line-through; }
 .ev.erased .mark { color: var(--time); }
