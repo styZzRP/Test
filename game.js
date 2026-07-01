@@ -204,6 +204,29 @@
       lasers: {},
       allowMove: true,
     },
+
+    /* ---- World 2: De Spiegelkloof (light + mirrors) ---- */
+    {
+      name: 'De Spiegelkloof',
+      hint: 'Licht straalt uit de bron. Stap op de SPIEGEL (/) om hem te draaien zodat ' +
+            'de straal de sensor (◎) raakt en de deur naar het kristal opent. Wis de ' +
+            'draai-gebeurtenis en het licht keert terug naar de oude stand.',
+      rows: [
+        '#############',
+        '#.........G.#',
+        '#######a#####',
+        '#...........#',
+        '#*....A.....#',
+        '#P....o.....#',
+        '#...........#',
+        '#############',
+      ],
+      plates: { A: { kind: 'mirror', base: '/' } },
+      doors: { a: { controllers: [{ sensor: 'X' }] } },
+      lasers: {},
+      emitters: { E: { dir: 'right' } },
+      sensors: { X: {} },
+    },
   ];
 
   /* ---------------------------------------------------------------------
@@ -214,7 +237,7 @@
     const walls = [];
     let spawn = null, goal = null;
     const plateCells = {}, doorCells = {}, laserCells = [];
-    const anchorCells = [], seedCells = [];
+    const anchorCells = [], seedCells = [], emitterCells = [], sensorCells = [];
 
     for (let y = 0; y < H; y++) {
       walls[y] = [];
@@ -226,6 +249,8 @@
         else if (ch >= 'A' && ch <= 'E') plateCells[ch] = { x, y };
         else if (ch >= 'a' && ch <= 'e') doorCells[ch] = { x, y };
         else if (ch === '~') laserCells.push({ x, y });
+        else if (ch === '*') emitterCells.push({ x, y });
+        else if (ch === 'o') sensorCells.push({ x, y });
         else if (ch === '@') anchorCells.push({ x, y });
         else if (ch === '&') seedCells.push({ x, y });
       }
@@ -255,9 +280,18 @@
     Object.keys(def.seeds || {}).forEach((id, i) => {
       seeds[id] = { id, ...def.seeds[id], ...seedCells[i] };
     });
+    const emitters = {};
+    Object.keys(def.emitters || {}).forEach((id, i) => {
+      emitters[id] = { id, ...def.emitters[id], ...emitterCells[i] };
+    });
+    const sensors = {};
+    Object.keys(def.sensors || {}).forEach((id, i) => {
+      sensors[id] = { id, ...def.sensors[id], ...sensorCells[i] };
+    });
 
     return {
       name: def.name, hint: def.hint, W, H, walls, spawn, goal, plates, doors, lasers, anchors, seeds,
+      emitters, sensors,
       echoType: def.echoType || 'normal',   // 'normal' | 'shadow'
       fadeCycles: def.fadeCycles || 0,       // >0 => fragile memories
       allowMove: !!def.allowMove,            // enable "Verschuif" in the timeline menu
@@ -303,10 +337,11 @@
      it from where the actors currently stand (respecting suppression).
   --------------------------------------------------------------------- */
   function freshWorld() {
-    const w = { doorOpen: {}, laserOn: {}, latched: {}, occ: {} };
+    const w = { doorOpen: {}, laserOn: {}, latched: {}, occ: {}, sensorLit: {}, beam: [] };
     for (const id in G.level.doors) w.doorOpen[id] = false;
     for (const id in G.level.lasers) w.laserOn[id] = false;
     for (const id in G.level.plates) { w.latched[id] = false; w.occ[id] = new Set(); }
+    for (const id in G.level.sensors) w.sensorLit[id] = false;
     return w;
   }
 
@@ -329,23 +364,27 @@
   }
 
   // Update latches on rising edges, then derive doors & lasers.
-  function deriveWorld(world, occ) {
+  function deriveWorld(world, occ, positions) {
     for (const id in G.level.plates) {
       const pl = G.level.plates[id];
       const now = occ[id].size > 0;
       const before = world.occ[id].size > 0;
-      if (pl.kind === 'latch' && now && !before) world.latched[id] = !world.latched[id];
+      // latches and mirrors both flip on a rising edge (stepping on)
+      if ((pl.kind === 'latch' || pl.kind === 'mirror') && now && !before) world.latched[id] = !world.latched[id];
       world.occ[id] = occ[id];
     }
+    // Light: raycast every emitter, reflecting off mirrors, lighting sensors.
+    computeBeams(world, positions);
     // A controller may reference a plate, an anchor (persistent memory),
-    // a seed (grows with events) or another door.
+    // a seed (grows with events), a light sensor or another door.
     const active = (c) => {
       if (c.plate) {
         const pl = G.level.plates[c.plate];
-        return pl.kind === 'latch' ? world.latched[c.plate] : world.occ[c.plate].size > 0;
+        return (pl.kind === 'latch' || pl.kind === 'mirror') ? world.latched[c.plate] : world.occ[c.plate].size > 0;
       }
       if (c.anchor) return !!(G.level.anchors[c.anchor] && G.level.anchors[c.anchor].remembered);
       if (c.seed) return seedStage(c.seed) >= (G.level.seeds[c.seed].target || 1);
+      if (c.sensor) return !!world.sensorLit[c.sensor];
       if (c.door) return !!world.doorOpen[c.door];
       return false;
     };
@@ -368,6 +407,52 @@
       world.laserOn[id] = on;
     }
     return world;
+  }
+
+  const DIRVEC = { right: { x: 1, y: 0 }, left: { x: -1, y: 0 }, up: { x: 0, y: -1 }, down: { x: 0, y: 1 } };
+
+  // A mirror plate's current orientation: base, flipped once per rotation.
+  function mirrorOrient(id, world) {
+    const base = G.level.plates[id].base;
+    const flip = world.latched[id];
+    return flip ? (base === '/' ? '\\' : '/') : base;
+  }
+  function reflect(d, orient) {
+    return orient === '/' ? { x: -d.y, y: -d.x } : { x: d.y, y: d.x };
+  }
+
+  // Cast each emitter's beam through the grid, bouncing off mirrors, stopping
+  // at walls and actors, and lighting any sensor it reaches.
+  function computeBeams(world, positions) {
+    world.beam = [];
+    for (const id in G.level.sensors) world.sensorLit[id] = false;
+    if (!Object.keys(G.level.emitters).length) return;
+
+    const L = G.level;
+    const blocked = new Set((positions || []).map(p => p.x + ',' + p.y));
+    const mirrorAt = (x, y) => {
+      for (const id in L.plates) { const pl = L.plates[id]; if (pl.kind === 'mirror' && pl.x === x && pl.y === y) return id; }
+      return null;
+    };
+    const sensorAt = (x, y) => {
+      for (const id in L.sensors) { const s = L.sensors[id]; if (s.x === x && s.y === y) return id; }
+      return null;
+    };
+
+    for (const eid in L.emitters) {
+      const em = L.emitters[eid];
+      let x = em.x, y = em.y, d = DIRVEC[em.dir] || DIRVEC.right;
+      for (let step = 0; step < 500; step++) {
+        x += d.x; y += d.y;
+        if (x < 0 || y < 0 || x >= L.W || y >= L.H || L.walls[y][x]) break;
+        if (blocked.has(x + ',' + y)) { world.beam.push({ x, y, hit: true }); break; }
+        const mid = mirrorAt(x, y);
+        if (mid) { d = reflect(d, mirrorOrient(mid, world)); world.beam.push({ x, y, mirror: true }); continue; }
+        const sid = sensorAt(x, y);
+        if (sid) { world.sensorLit[sid] = true; world.beam.push({ x, y, sensor: true }); break; }
+        world.beam.push({ x, y });
+      }
+    }
   }
 
   // Non-erased events currently on the timeline — drives seed growth.
@@ -423,7 +508,7 @@
       if ((d.x || d.y) && passable(nx, ny, world)) { p.x = nx; p.y = ny; }
     }
     // re-derive world from the new positions
-    deriveWorld(world, computeOccupancy(positions));
+    deriveWorld(world, computeOccupancy(positions), positions);
   }
 
   /* ---------------------------------------------------------------------
@@ -434,7 +519,7 @@
     if (!G.echoes.length) { G.events = events; return; }
     const world = freshWorld();
     const positions = G.echoes.map(e => ({ actorId: e.id, x: e.spawn.x, y: e.spawn.y }));
-    deriveWorld(world, computeOccupancy(positions));
+    deriveWorld(world, computeOccupancy(positions), positions);
     const onPlate = {}; // actorId+plate -> currently on
 
     for (let t = 0; t < CYCLE_TICKS; t++) {
@@ -488,7 +573,7 @@
     G.world = freshWorld();
     // place all actors at spawn
     positionsInit();
-    deriveWorld(G.world, computeOccupancy(currentPositions()));
+    deriveWorld(G.world, computeOccupancy(currentPositions()), currentPositions());
     renderHUD();
   }
 
@@ -678,11 +763,21 @@
       }
     }
 
-    // plates
+    // light beam (under the objects it touches)
+    for (const b of (G.world.beam || [])) drawBeam(ox + (b.x + 0.5) * cell, oy + (b.y + 0.5) * cell, cell);
+    // emitters + sensors
+    for (const id in L.emitters) { const e = L.emitters[id]; drawEmitter(ox + (e.x + 0.5) * cell, oy + (e.y + 0.5) * cell, cell, e.dir); }
+    for (const id in L.sensors) { const s = L.sensors[id]; drawSensor(ox + (s.x + 0.5) * cell, oy + (s.y + 0.5) * cell, cell, G.world.sensorLit[id]); }
+
+    // plates & mirrors
     for (const id in L.plates) {
       const pl = L.plates[id];
-      const active = pl.kind === 'latch' ? G.world.latched[id] : G.world.occ[id].size > 0;
-      drawPlate(ox + pl.x * cell, oy + pl.y * cell, cell, pl.color, active, pl.kind === 'latch');
+      if (pl.kind === 'mirror') {
+        drawMirror(ox + (pl.x + 0.5) * cell, oy + (pl.y + 0.5) * cell, cell, mirrorOrient(id, G.world));
+      } else {
+        const active = pl.kind === 'latch' ? G.world.latched[id] : G.world.occ[id].size > 0;
+        drawPlate(ox + pl.x * cell, oy + pl.y * cell, cell, pl.color, active, pl.kind === 'latch');
+      }
     }
 
     // doors
@@ -744,6 +839,50 @@
       ctx.fillStyle = isEcho ? 'rgba(127,240,255,0.5)' : '#eaf0ff';
       roundRect(x - r, y - r, r * 2, r * 2, r * 0.5); ctx.fill();
     }
+    ctx.restore();
+  }
+
+  function drawBeam(cx, cy, cell) {
+    const r = cell * 0.42;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,212,121,0.16)';
+    ctx.shadowBlur = 12; ctx.shadowColor = '#ffd479';
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    ctx.restore();
+  }
+
+  function drawEmitter(cx, cy, cell, dir) {
+    const r = cell * 0.24;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.fillStyle = '#ffd479'; ctx.shadowBlur = 16; ctx.shadowColor = '#ffd479';
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    // little nib pointing the beam direction
+    const v = DIRVEC[dir] || DIRVEC.right;
+    ctx.fillRect(v.x * r, v.y * r, Math.max(3, Math.abs(v.x) * cell * 0.18) || 3, Math.max(3, Math.abs(v.y) * cell * 0.18) || 3);
+    ctx.restore();
+  }
+
+  function drawSensor(cx, cy, cell, lit) {
+    const r = cell * 0.24;
+    ctx.save();
+    ctx.strokeStyle = lit ? '#ffd479' : '#5a6aa8'; ctx.lineWidth = 2;
+    ctx.shadowBlur = lit ? 18 : 3; ctx.shadowColor = '#ffd479';
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.4, 0, Math.PI * 2);
+    if (lit) { ctx.fillStyle = 'rgba(255,212,121,0.6)'; ctx.fill(); } else ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawMirror(cx, cy, cell, orient) {
+    const r = cell * 0.32;
+    ctx.save();
+    ctx.strokeStyle = '#cfe0ff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.shadowBlur = 10; ctx.shadowColor = '#7ff0ff';
+    ctx.beginPath();
+    if (orient === '/') { ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r); }
+    else { ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r); }
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -1095,6 +1234,8 @@
     doorOpen: (id) => G.world.doorOpen[id],
     laserOn: (id) => G.world.laserOn[id],
     anchorRemembered: (id) => !!(G.level.anchors[id] && G.level.anchors[id].remembered),
+    sensorLit: (id) => !!G.world.sensorLit[id],
+    mirrorOrient: (id) => mirrorOrient(id, G.world),
     seedStage: (id) => seedStage(id),
     eventCount: () => activeEventCount(),
     echoCount: () => G.echoes.length,
