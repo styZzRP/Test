@@ -246,6 +246,26 @@
       doors: {},
       lasers: { L: { controllers: [{ plate: 'B' }] } },
     },
+
+    /* ---- World 5: shared timeline across two rooms ---- */
+    {
+      name: 'Twee Kamers',
+      hint: 'Twee kamers delen één geschiedenis. De knop LINKS opent een deur RECHTS. ' +
+            'Laat je echo de knop links ingedrukt houden, stap door het portaal (◉) ' +
+            'naar rechts, en loop door de deur naar het kristal.',
+      rows: [
+        '#############',
+        '#P..A.#..G..#',
+        '#.....#.....#',
+        '#.....#.a...#',
+        '#.....#.....#',
+        '#..p..#.q...#',
+        '#############',
+      ],
+      plates: { A: { kind: 'pressure' } },
+      doors: { a: { controllers: [{ plate: 'A' }] } },
+      lasers: {},
+    },
   ];
 
   /* ---------------------------------------------------------------------
@@ -256,7 +276,7 @@
     const walls = [];
     let spawn = null, goal = null, forgetter = null;
     const plateCells = {}, doorCells = {}, laserCells = [];
-    const anchorCells = [], seedCells = [], emitterCells = [], sensorCells = [];
+    const anchorCells = [], seedCells = [], emitterCells = [], sensorCells = [], portalCells = [];
 
     for (let y = 0; y < H; y++) {
       walls[y] = [];
@@ -271,6 +291,7 @@
         else if (ch === '*') emitterCells.push({ x, y });
         else if (ch === 'o') sensorCells.push({ x, y });
         else if (ch === 'F') forgetter = { x, y };
+        else if (ch === 'p' || ch === 'q') portalCells.push({ x, y });
         else if (ch === '@') anchorCells.push({ x, y });
         else if (ch === '&') seedCells.push({ x, y });
       }
@@ -311,7 +332,7 @@
 
     return {
       name: def.name, hint: def.hint, W, H, walls, spawn, goal, plates, doors, lasers, anchors, seeds,
-      emitters, sensors, forgetter,
+      emitters, sensors, forgetter, portals: portalCells.length === 2 ? portalCells : null,
       echoType: def.echoType || 'normal',   // 'normal' | 'shadow'
       fadeCycles: def.fadeCycles || 0,       // >0 => fragile memories
       allowMove: !!def.allowMove,            // enable "Verschuif" in the timeline menu
@@ -534,6 +555,17 @@
       const nx = p.x + d.x, ny = p.y + d.y;
       p.prevX = p.x; p.prevY = p.y;
       if ((d.x || d.y) && passable(nx, ny, world)) { p.x = nx; p.y = ny; }
+    }
+    // portals: stepping onto one warps you to its partner (linking two rooms)
+    const pr = G.level.portals;
+    if (pr) {
+      const [pa, pb] = pr;
+      for (const p of positions) {
+        const onA = p.x === pa.x && p.y === pa.y, wasA = p.prevX === pa.x && p.prevY === pa.y;
+        const onB = p.x === pb.x && p.y === pb.y, wasB = p.prevX === pb.x && p.prevY === pb.y;
+        if (onA && !wasA) { p.x = pb.x; p.y = pb.y; p.prevX = pb.x; p.prevY = pb.y; }
+        else if (onB && !wasB) { p.x = pa.x; p.y = pa.y; p.prevX = pa.x; p.prevY = pa.y; }
+      }
     }
     // re-derive world from the new positions
     deriveWorld(world, computeOccupancy(positions), positions);
@@ -831,6 +863,8 @@
       }
     }
 
+    // portals (linking the two rooms)
+    if (L.portals) for (const p of L.portals) drawPortal(ox + (p.x + 0.5) * cell, oy + (p.y + 0.5) * cell, cell);
     // light beam (under the objects it touches)
     for (const b of (G.world.beam || [])) drawBeam(ox + (b.x + 0.5) * cell, oy + (b.y + 0.5) * cell, cell);
     // emitters + sensors
@@ -968,6 +1002,20 @@
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
     ctx.beginPath(); ctx.arc(cx, cy, r * 0.4, 0, Math.PI * 2);
     if (lit) { ctx.fillStyle = 'rgba(255,212,121,0.6)'; ctx.fill(); } else ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPortal(cx, cy, cell) {
+    const r = cell * 0.3;
+    const t = performance.now() / 1000;
+    ctx.save();
+    ctx.translate(cx, cy); ctx.rotate(t);
+    ctx.strokeStyle = '#7ff0ff'; ctx.lineWidth = 2;
+    ctx.shadowBlur = 14; ctx.shadowColor = '#7ff0ff';
+    for (let k = 0; k < 3; k++) {
+      ctx.globalAlpha = 0.4 + k * 0.2;
+      ctx.beginPath(); ctx.arc(0, 0, r * (1 - k * 0.28), 0, Math.PI * 1.5); ctx.stroke();
+    }
     ctx.restore();
   }
 
