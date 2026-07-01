@@ -157,16 +157,40 @@
   /* ---------------------------------------------------------------------
      INPUT
   --------------------------------------------------------------------- */
+  // --- Mouse (desktop) ---
   canvas.addEventListener('mousemove', (e) => {
-    const { c, r } = tileFromEvent(e);
-    state.hoverTile = (c >= 0 && c < COLS && r >= 0 && r < ROWS) ? { c, r } : null;
+    const { c, r } = tileFromPoint(e.clientX, e.clientY);
+    state.hoverTile = inBounds(c, r) ? { c, r } : null;
   });
   canvas.addEventListener('mouseleave', () => state.hoverTile = null);
-
   canvas.addEventListener('click', (e) => {
+    if (justTouched) return; // ignore the click browsers synthesise after a tap
+    const { c, r } = tileFromPoint(e.clientX, e.clientY);
+    placeTowerAt(c, r);
+  });
+
+  // --- Touch (iPhone / iPad / Android) ---
+  // Dragging a finger previews the range circle; lifting it drops the gang.
+  let justTouched = false;
+  const onTouch = (e) => {
+    if (!e.touches.length) return;
+    const t = e.touches[0];
+    const { c, r } = tileFromPoint(t.clientX, t.clientY);
+    state.hoverTile = inBounds(c, r) ? { c, r } : null;
+  };
+  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); onTouch(e); }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => { e.preventDefault(); onTouch(e); }, { passive: false });
+  canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (state.hoverTile) placeTowerAt(state.hoverTile.c, state.hoverTile.r);
+    state.hoverTile = null;
+    justTouched = true;              // swallow the trailing synthetic click
+    setTimeout(() => justTouched = false, 400);
+  }, { passive: false });
+
+  function placeTowerAt(c, r) {
     if (!state.selectedType || state.over) return;
-    const { c, r } = tileFromEvent(e);
-    if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
+    if (!inBounds(c, r)) return;
     if (isRoad(c, r)) { flashHint('Cars drive there — pick an empty lot.'); return; }
     if (state.towers.some(t => t.c === c && t.r === r)) { flashHint('Lot already taken.'); return; }
 
@@ -180,12 +204,14 @@
     });
     if (state.cash < type.cost) state.selectedType = null;
     updateHUD();
-  });
+  }
 
-  function tileFromEvent(e) {
+  const inBounds = (c, r) => c >= 0 && c < COLS && r >= 0 && r < ROWS;
+
+  function tileFromPoint(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (W / rect.width);
-    const y = (e.clientY - rect.top) * (H / rect.height);
+    const x = (clientX - rect.left) * (W / rect.width);
+    const y = (clientY - rect.top) * (H / rect.height);
     return { c: Math.floor(x / TILE), r: Math.floor(y / TILE) };
   }
 
@@ -339,7 +365,7 @@
 
     if (hintTimer > 0) {
       hintTimer -= dt;
-      if (hintTimer <= 0) el.hint.textContent = 'Pick a gang, then click an empty lot to deploy.';
+      if (hintTimer <= 0) el.hint.textContent = 'Pick a gang, then tap an empty lot to deploy.';
     }
     updateHUD();
   }
@@ -584,7 +610,7 @@
   updateHUD();
   showOverlay(
     'WASTED CITY',
-    'Top-down gang warfare. Deploy crews on the empty lots and stop the cars before they reach the EXIT. Press a gang in the shop, click a lot, then SEND NEXT WAVE.',
+    'Top-down gang warfare. Deploy crews on the empty lots and stop the cars before they reach the EXIT. Tap a gang in the shop, tap a lot, then SEND NEXT WAVE.',
     'HIT THE STREETS',
     () => { state.running = true; }
   );

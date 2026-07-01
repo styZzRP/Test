@@ -105,6 +105,10 @@ html, body {
   background: var(--asphalt);
   cursor: crosshair;
   flex: 0 0 auto;
+  touch-action: none;          /* don't scroll/zoom the page while playing */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ===== Shop ===== */
@@ -196,3 +200,40 @@ html, body {
 
 .flash { animation: flash .25s ease; }
 @keyframes flash { from { background: #fff; } to { background: var(--asphalt); } }
+
+/* ===== Mobile / iPhone: stack the shop under the board and scale to fit ===== */
+@media (max-width: 900px) {
+  html, body { overflow: auto; -webkit-text-size-adjust: 100%; }
+  #crt { align-items: flex-start; }
+  #game-wrap { width: 100%; max-width: 100vw; }
+
+  #hud { flex-direction: column; gap: 6px; padding: 8px; }
+  .logo { font-size: 30px; }
+  .stats { width: 100%; justify-content: space-between; gap: 8px; }
+  .stat { flex: 1; min-width: 0; }
+
+  #stage { flex-direction: column; }
+
+  /* Board becomes a square that fills the screen width */
+  #canvas {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+  }
+
+  #shop { border-left: none; border-top: 2px solid var(--line); }
+  #tower-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tower-desc { display: none; }               /* save room on small screens */
+  .tower-card { grid-template-columns: 26px 1fr auto; padding: 8px 6px; }
+
+  /* Comfortable tap targets */
+  .btn { padding: 14px 10px; font-size: 24px; }
+  .btn.big { font-size: 26px; padding: 14px 22px; }
+  .panel { padding: 24px 22px; margin: 0 12px; }
+  .panel h2 { font-size: 40px; }
+}
+
+/* Honour the iPhone notch / home-indicator safe areas */
+@supports (padding: max(0px)) {
+  #crt { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+}
