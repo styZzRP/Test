@@ -93,6 +93,51 @@
       doors: { a: { controllers: [{ plate: 'A' }, { plate: 'C', close: true }] } },
       lasers: {},
     },
+
+    /* ---- World 3: Het Archief van Vergeten Dingen ---- */
+    {
+      name: 'Het oude ware',
+      hint: 'Een TIJDANKER (◆) onthoudt of de deur ooit open was — voor altijd. ' +
+            'Laat je echo de deur openen zodat het anker het onthoudt, en WIS daarna ' +
+            'die gebeurtenis: de laser dooft, maar de brug blijft bestaan omdat het ' +
+            'anker de oude waarheid bewaart. De deur is tegelijk open én dicht.',
+      rows: [
+        '#############',
+        '#P.........@#',
+        '#...........#',
+        '#..A.a......#',
+        '#~~~~~~~~~~~#',
+        '#.....b.....#',
+        '#.....G.....#',
+        '#############',
+      ],
+      plates: { A: { kind: 'pressure' } },
+      doors: {
+        a: { controllers: [{ plate: 'A' }] },
+        b: { controllers: [{ anchor: 'T' }] },   // bridge: open once the anchor remembers
+      },
+      lasers: { L: { controllers: [{ door: 'a' }] } }, // laser on while door a is open
+      anchors: { T: { watch: { door: 'a' } } },
+    },
+    {
+      name: 'De groeiende brug',
+      hint: 'Een TIJDZAAD (❁) groeit met het aantal gebeurtenissen. Laat meerdere ' +
+            'echo\'s de plaat aanraken tot de plant genoeg gebeurtenissen telt en de ' +
+            'brug vormt. Wissen laat de plant juist krimpen.',
+      rows: [
+        '###########',
+        '#P...A....#',
+        '#.........#',
+        '#....&....#',
+        '#####b#####',
+        '#....G....#',
+        '###########',
+      ],
+      plates: { A: { kind: 'pressure' } },
+      doors: { b: { controllers: [{ seed: 'S' }] } },   // bridge opens at seed stage >= target
+      lasers: {},
+      seeds: { S: { thresholds: [1, 2, 3], target: 3 } }, // needs 3 events to bridge
+    },
   ];
 
   /* ---------------------------------------------------------------------
@@ -103,6 +148,7 @@
     const walls = [];
     let spawn = null, goal = null;
     const plateCells = {}, doorCells = {}, laserCells = [];
+    const anchorCells = [], seedCells = [];
 
     for (let y = 0; y < H; y++) {
       walls[y] = [];
@@ -114,6 +160,8 @@
         else if (ch >= 'A' && ch <= 'E') plateCells[ch] = { x, y };
         else if (ch >= 'a' && ch <= 'e') doorCells[ch] = { x, y };
         else if (ch === '~') laserCells.push({ x, y });
+        else if (ch === '@') anchorCells.push({ x, y });
+        else if (ch === '&') seedCells.push({ x, y });
       }
     }
 
@@ -132,8 +180,17 @@
     for (const id in def.lasers) {
       lasers[id] = { id, ...def.lasers[id], cells: laserCells };
     }
+    // anchors ('@') and seeds ('&') — assigned to their def ids in map order
+    const anchors = {};
+    Object.keys(def.anchors || {}).forEach((id, i) => {
+      anchors[id] = { id, ...def.anchors[id], ...anchorCells[i], remembered: false };
+    });
+    const seeds = {};
+    Object.keys(def.seeds || {}).forEach((id, i) => {
+      seeds[id] = { id, ...def.seeds[id], ...seedCells[i] };
+    });
 
-    return { name: def.name, hint: def.hint, W, H, walls, spawn, goal, plates, doors, lasers };
+    return { name: def.name, hint: def.hint, W, H, walls, spawn, goal, plates, doors, lasers, anchors, seeds };
   }
 
   /* ---------------------------------------------------------------------
@@ -198,31 +255,65 @@
       if (pl.kind === 'latch' && now && !before) world.latched[id] = !world.latched[id];
       world.occ[id] = occ[id];
     }
-    const active = (id) => {
-      const pl = G.level.plates[id];
-      return pl.kind === 'latch' ? world.latched[id] : world.occ[id].size > 0;
+    // A controller may reference a plate, an anchor (persistent memory),
+    // a seed (grows with events) or another door.
+    const active = (c) => {
+      if (c.plate) {
+        const pl = G.level.plates[c.plate];
+        return pl.kind === 'latch' ? world.latched[c.plate] : world.occ[c.plate].size > 0;
+      }
+      if (c.anchor) return !!(G.level.anchors[c.anchor] && G.level.anchors[c.anchor].remembered);
+      if (c.seed) return seedStage(c.seed) >= (G.level.seeds[c.seed].target || 1);
+      if (c.door) return !!world.doorOpen[c.door];
+      return false;
     };
     for (const id in G.level.doors) {
       const d = G.level.doors[id];
       let open = false;
-      // opening controllers (OR); a plate can be inverted (open while NOT active)
       for (const c of (d.controllers || [])) {
         if (c.close) continue;
-        if (active(c.plate) !== !!c.invert) open = true;
+        if (active(c) !== !!c.invert) open = true;
       }
-      // closing controllers override: if active, force the door shut
       for (const c of (d.controllers || [])) {
-        if (c.close && active(c.plate)) open = false;
+        if (c.close && active(c)) open = false;
       }
       world.doorOpen[id] = open;
     }
     for (const id in G.level.lasers) {
       const l = G.level.lasers[id];
       let on = false;
-      for (const c of (l.controllers || [])) if (active(c.plate) !== !!c.invert) on = true;
+      for (const c of (l.controllers || [])) if (active(c) !== !!c.invert) on = true;
       world.laserOn[id] = on;
     }
     return world;
+  }
+
+  // Non-erased events currently on the timeline — drives seed growth.
+  function activeEventCount() {
+    let n = 0;
+    for (const e of G.events) if (!G.suppressed.has(key(e.actorId, e.plateId))) n++;
+    return n;
+  }
+  // A seed's stage = how many of its thresholds the active-event count clears.
+  function seedStage(id) {
+    const s = G.level.seeds[id];
+    if (!s) return 0;
+    const th = s.thresholds || [1];
+    let stage = 0;
+    for (const t of th) if (activeEventCount() >= t) stage++;
+    return stage;
+  }
+
+  // Is a time anchor's watched condition true right now (in the live world)?
+  function anchorWitnesses(a) {
+    const w = a.watch || {};
+    if (w.door) return !!G.world.doorOpen[w.door];
+    if (w.laserOff) return !G.world.laserOn[w.laserOff];
+    if (w.plate) {
+      const pl = G.level.plates[w.plate];
+      return pl && (pl.kind === 'latch' ? G.world.latched[w.plate] : G.world.occ[w.plate].size > 0);
+    }
+    return false;
   }
 
   function passable(x, y, world) {
@@ -306,6 +397,8 @@
     if (fullReset) {
       G.echoes = [];
       G.suppressed = new Set();
+      // a full reset wipes time-anchor memory; erasing (partial) keeps it.
+      for (const id in G.level.anchors) G.level.anchors[id].remembered = false;
     }
     G.tick = 0; G.acc = 0;
     G.live = { id: 'live', track: [], spawn: G.level.spawn };
@@ -333,6 +426,14 @@
     G.live.track[G.tick] = G.input;
 
     stepTick(POS, dirs, G.world);
+
+    // Time anchors witness the live timeline and remember forever — even
+    // after the causing event is later erased. This is the paradox engine.
+    for (const id in G.level.anchors) {
+      const a = G.level.anchors[id];
+      if (!a.remembered && anchorWitnesses(a)) { a.remembered = true; G.breathe = Math.max(G.breathe, 0.6); }
+    }
+
     G.tick++;
 
     // win: the live player reached the crystal
@@ -495,6 +596,17 @@
       for (const c of L.lasers[id].cells) drawLaser(ox + c.x * cell, oy + c.y * cell, cell);
     }
 
+    // time anchors
+    for (const id in L.anchors) {
+      const a = L.anchors[id];
+      drawAnchor(ox + (a.x + 0.5) * cell, oy + (a.y + 0.5) * cell, cell, a.remembered);
+    }
+    // time seeds (plants)
+    for (const id in L.seeds) {
+      const s = L.seeds[id];
+      drawSeed(ox + (s.x + 0.5) * cell, oy + (s.y + 1) * cell, cell, seedStage(id), (s.thresholds || [1]).length);
+    }
+
     // goal crystal
     drawCrystal(ox + (L.goal.x + 0.5) * cell, oy + (L.goal.y + 0.5) * cell, cell);
 
@@ -558,6 +670,48 @@
     ctx.beginPath();
     ctx.moveTo(px, py + cell / 2); ctx.lineTo(px + cell, py + cell / 2);
     ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawAnchor(cx, cy, cell, remembered) {
+    const r = cell * 0.26;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.strokeStyle = remembered ? '#b98cff' : '#5a6aa8';
+    ctx.fillStyle = 'rgba(185,140,255,0.16)';
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = remembered ? 20 : 4; ctx.shadowColor = '#b98cff';
+    // a diamond ring (memory) with an inner mark that lights when remembered
+    ctx.beginPath();
+    ctx.moveTo(0, -r); ctx.lineTo(r, 0); ctx.lineTo(0, r); ctx.lineTo(-r, 0); ctx.closePath();
+    if (remembered) ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 0.45); ctx.lineTo(r * 0.45, 0); ctx.lineTo(0, r * 0.45); ctx.lineTo(-r * 0.45, 0); ctx.closePath();
+    ctx.globalAlpha = remembered ? 0.9 : 0.4;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSeed(cx, baseY, cell, stage, maxStage) {
+    const grow = stage / maxStage;                 // 0..1
+    const h = cell * (0.15 + grow * 0.7);
+    ctx.save();
+    ctx.strokeStyle = '#8affa0'; ctx.lineWidth = 2;
+    ctx.shadowBlur = 10 + grow * 12; ctx.shadowColor = '#8affa0';
+    ctx.globalAlpha = 0.5 + grow * 0.5;
+    // stem
+    ctx.beginPath(); ctx.moveTo(cx, baseY - 3); ctx.lineTo(cx, baseY - h); ctx.stroke();
+    // leaves per stage
+    for (let i = 0; i < stage; i++) {
+      const ly = baseY - 4 - (i + 1) * (h - 4) / (maxStage + 0.5);
+      const side = i % 2 === 0 ? 1 : -1;
+      ctx.beginPath();
+      ctx.moveTo(cx, ly);
+      ctx.quadraticCurveTo(cx + side * cell * 0.22, ly - cell * 0.06, cx + side * cell * 0.28, ly);
+      ctx.quadraticCurveTo(cx + side * cell * 0.22, ly + cell * 0.06, cx, ly);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -800,6 +954,9 @@
     erase: (actorId, plateId) => toggleErase({ actorId, plateId, anchored: false, id: actorId + ':' + plateId }),
     doorOpen: (id) => G.world.doorOpen[id],
     laserOn: (id) => G.world.laserOn[id],
+    anchorRemembered: (id) => !!(G.level.anchors[id] && G.level.anchors[id].remembered),
+    seedStage: (id) => seedStage(id),
+    eventCount: () => activeEventCount(),
     echoCount: () => G.echoes.length,
     isWon: () => G.won,
     level: () => G.levelIndex,
